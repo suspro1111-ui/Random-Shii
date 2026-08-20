@@ -1,6 +1,6 @@
 
 -- =====================================================================
--- AUTO-PLAY CORE ENGINE (v1.0)
+-- AUTO-PLAY CORE  (v1.0)
 -- =====================================================================
 
 local RawConfig = ... or {}
@@ -37,7 +37,7 @@ local Config = {
     CLASH_ADVANTAGE_SCORE     = RawConfig.CLASH_ADVANTAGE_SCORE or 0,
     CLASH_RISKY_SCORE         = RawConfig.CLASH_RISKY_SCORE or -4,
 
-    -- [Engine Delays & Timing Guards]
+    -- [ Delays & Timing Guards]
     ACTION_DELAY              = RawConfig.ACTION_DELAY or 0.40,
     ACTION_POST_DELAY         = RawConfig.ACTION_POST_DELAY or 0.35,
     CLASH_MAX_TIMEOUT         = RawConfig.CLASH_MAX_TIMEOUT or 12.0,
@@ -49,7 +49,7 @@ local Config = {
     SYNC_SETTLE_DELAY          = RawConfig.SYNC_SETTLE_DELAY or 0.2,
     RESIST_CACHE_TIME          = RawConfig.RESIST_CACHE_TIME or 3.0,
 
-    -- [Node & Pathing Engine]
+    -- [Node & Pathing ]
     NODE_SCAN_INTERVAL        = RawConfig.NODE_SCAN_INTERVAL or 0.4,
     AUTO_NODE_DELAY           = RawConfig.AUTO_NODE_DELAY or 0.6,
     EMBARK_RETRY_COOLDOWN     = RawConfig.EMBARK_RETRY_COOLDOWN or 2.5,
@@ -210,7 +210,7 @@ Refs.endTurn              = Refs.Events:WaitForChild("EndTurn")
 Refs.clashPredictor       = Refs.Events:WaitForChild("ClashPredictor")
 
 -- =====================================================================
--- 3. NAMESPACED ENGINE MODULES
+-- 3. NAMESPACED  MODULES
 -- =====================================================================
 local Utils   = {}
 local Acrylic = { Cleanups = {}, BlurInstances = {}, Folder = nil, DOF = nil, Enabled = Config.ACRYLIC.BlurEnabled }
@@ -219,8 +219,74 @@ local Combat  = {}
 local Dungeon = {}
 
 -- ---------------------------------------------------------------------
--- UTILITY ENGINE
+-- UTILITY 
 -- ---------------------------------------------------------------------
+
+type Icon = {
+    Url: string,
+    Id: number,
+    IconName: string,
+    ImageRectOffset: Vector2,
+    ImageRectSize: Vector2,
+}
+
+type IconModule = {
+    Icons: { string },
+    GetAsset: (Name: string) -> Icon?,
+}
+
+local FetchIcons, Icons = pcall(function()
+    return (loadstring(
+        game:HttpGet("https://raw.githubusercontent.com/mstudio45/lucide-roblox-direct/refs/heads/main/source.lua")
+    ) :: () -> IconModule)()
+end)
+
+local function IsValidCustomIcon(Icon: string)
+    return typeof(Icon) == "string" and (Icon:match("^rbxasset://textures/") or Icon:match("roblox%.com/asset/%?id=") or Icon:match("rbxthumb://type="))
+end
+
+local function IsCustomAssetIcon(Icon: string, IncludeAssetId: boolean)
+    return typeof(Icon) == "string" and (Icon:match("^content://") or (Icon:match("^rbxasset://%x+/") or Icon:match("^rbxasset://[^/]+/")) or (IncludeAssetId == true and Icon:match("^rbxassetid://")))
+end
+
+local function GetIcon(IconName: string): Icon?
+    if not FetchIcons or not Icons then return nil end
+    local Success, Icon = pcall(Icons.GetAsset, IconName)
+    if not Success or typeof(Icon) ~= "table" then return nil end
+    return Icon
+end
+
+local function GetCustomIcon(IconName: string): Icon?
+    if not IconName then return nil end
+    if tonumber(IconName) then
+        IconName = string.format("rbxassetid://%s", tostring(IconName))
+    end
+    if IsCustomAssetIcon(IconName, true) or IsValidCustomIcon(IconName) then
+        return {
+            Url = IconName,
+            Id = 0,
+            IconName = IconName,
+            ImageRectOffset = Vector2.zero,
+            ImageRectSize = Vector2.zero,
+        }
+    end
+    return GetIcon(IconName)
+end
+
+local function Utils.SetIcon(imageLabel: ImageLabel, iconName: string)
+    if not (imageLabel and imageLabel:IsA("ImageLabel")) then return end
+    local icon = GetCustomIcon(iconName)
+    if icon then
+        imageLabel.Image = icon.Url or ""
+        imageLabel.ImageRectOffset = icon.ImageRectOffset or Vector2.zero
+        imageLabel.ImageRectSize = icon.ImageRectSize or Vector2.zero
+    else
+        imageLabel.Image = ""
+        imageLabel.ImageRectOffset = Vector2.zero
+        imageLabel.ImageRectSize = Vector2.zero
+    end
+end
+
 function Utils.toNumber(v)
     if type(v) == "number" then return v end
     if type(v) == "string" then return tonumber(v) end
@@ -306,7 +372,7 @@ function Utils.forcePlayerReset()
 end
 
 -- ---------------------------------------------------------------------
--- ACRYLIC CORE ENGINE
+-- ACRYLIC CORE 
 -- ---------------------------------------------------------------------
 local function mapRange(v, inMin, inMax, outMin, outMax)
     return (v - inMin) * (outMax - outMin) / (inMax - inMin) + outMin
@@ -1363,7 +1429,7 @@ function Combat.isInActiveCombat(): boolean
 end
 
 -- ---------------------------------------------------------------------
--- DUNGEON AUTOMATION ENGINE
+-- DUNGEON AUTOMATION 
 -- ---------------------------------------------------------------------
 function Dungeon.handleAutoRetry()
     if not Config.AUTO_RETRY_ENABLED then return false end
@@ -1698,7 +1764,7 @@ function Dungeon.processAutoEvent()
 end
 
 -- ---------------------------------------------------------------------
--- SMART PATHING & GRAPH DFS ENGINE
+-- SMART PATHING & GRAPH DFS 
 -- ---------------------------------------------------------------------
 local okNodeInfo, NodeInfoMod = pcall(function()
     return require(Services.ReplicatedStorage.ClientModules:WaitForChild("NodeInfo", 5))
@@ -2225,7 +2291,7 @@ do
     Grip.Name = "DragGrip"
     Grip.Size = UDim2.new(0, 16, 0, 16)
     Grip.BackgroundTransparency = 1
-    SetIcon(Grip, "grip-vertical")
+    Utils.SetIcon(Grip, "grip-vertical")
     Grip.ImageColor3 = Config.THEME.SubMuted
     Grip.ImageTransparency = 0.3
     Grip.Active = true
@@ -2257,7 +2323,7 @@ do
         iconImg.Size = UDim2.new(0, 14, 0, 14)
         iconImg.Position = UDim2.new(0, 10, 0.5, -7)
         iconImg.BackgroundTransparency = 1
-        SetIcon(iconImg, iconName or "circle")
+        Utils.SetIcon(iconImg, iconName or "circle")
         iconImg.ImageColor3 = defaultColor
         iconImg.Parent = btn
 
