@@ -348,7 +348,7 @@ local function forcePlayerReset()
 end
 
 --=====================================================================
--- FLUENT ACRYLIC ENGINE (DepthOfField + Viewport Projected Glass Mesh)
+-- ACRYLIC ENGINE (DepthOfField + Viewport Projected Glass Mesh)
 --=====================================================================
 local AcrylicEngine = {
     Cleanups = {},
@@ -555,7 +555,7 @@ local function setAcrylicBlur(enabled)
 end
 
 ----------------------------------------------------------------------
--- FLUENT ACRYLIC PAINT FACTORY (Multi-layered Violet Glass)
+-- ACRYLIC PAINT FACTORY (Multi-layered Violet Glass)
 ----------------------------------------------------------------------
 local function createGlassPanel(name, size, position, radius, tint, anchorPoint)
     radius = radius or 10
@@ -757,7 +757,7 @@ end
 ----------------------------------------------------------------------
 -- ROOT SCREENGUI
 ----------------------------------------------------------------------
-local GUI_NAME = "AutoCombat_Obsidian"
+local GUI_NAME = "AutoPlayZzz"
 
 local ScreenGui = Instance.new("ScreenGui")
 ScreenGui.Name = GUI_NAME
@@ -940,7 +940,7 @@ Title.Name = "Title"
 Title.Size = UDim2.new(0, 180, 1, 0)
 Title.Position = UDim2.new(0, 12, 0, 0)
 Title.BackgroundTransparency = 1
-Title.Text = "OBSIDIAN // CONSOLE"
+Title.Text = "AUTO-PLAY // CONSOLE"
 Title.TextColor3 = THEME.Text
 Title.Font = Enum.Font.GothamBold
 Title.TextSize = 11
@@ -1196,7 +1196,7 @@ local function Log(tag, text, colorHex)
             { TextTransparency = 0 }):Play()
     end)
     if not ok then
-        warn("[Obsidian Console] log error:", err)
+        warn("[Console] log error:", err)
     end
 end
 
@@ -1275,7 +1275,7 @@ updateNodeButton()
 updateCounterBadge()
 setConsoleVisibility(UI_LAYOUT.ConsoleVisibleOnStart)
 
-Log("INIT", "Auto-Combat v6.4 loaded [Smart EGO PCT & Flat Threat Gates].", "#8A5CFF")
+Log("INIT", "Auto-Play v1 Loaded.", "#8A5CFF")
 
 ----------------------------------------------------------------------
 -- SAFE VALUE & STATUS HELPERS
