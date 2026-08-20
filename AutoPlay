@@ -1,6 +1,6 @@
 
 -- =====================================================================
--- AUTO-PLAY CORE  (v1.1 - Hardened Stability & Combat Lock)
+-- AUTO-PLAY CORE  v1.1
 -- =====================================================================
 
 local RawConfig = ... or {}
@@ -37,7 +37,7 @@ local Config = {
     CLASH_ADVANTAGE_SCORE     = RawConfig.CLASH_ADVANTAGE_SCORE or 0,
     CLASH_RISKY_SCORE         = RawConfig.CLASH_RISKY_SCORE or -4,
 
-    -- [Delays & Timing Guards]
+    -- [ Delays & Timing Guards]
     ACTION_DELAY              = RawConfig.ACTION_DELAY or 0.40,
     ACTION_POST_DELAY         = RawConfig.ACTION_POST_DELAY or 0.35,
     CLASH_MAX_TIMEOUT         = RawConfig.CLASH_MAX_TIMEOUT or 12.0,
@@ -49,7 +49,7 @@ local Config = {
     SYNC_SETTLE_DELAY         = RawConfig.SYNC_SETTLE_DELAY or 0.2,
     RESIST_CACHE_TIME         = RawConfig.RESIST_CACHE_TIME or 3.0,
 
-    -- [Node & Pathing]
+    -- [Node & Pathing ]
     NODE_SCAN_INTERVAL        = RawConfig.NODE_SCAN_INTERVAL or 0.4,
     AUTO_NODE_DELAY           = RawConfig.AUTO_NODE_DELAY or 0.6,
     EMBARK_RETRY_COOLDOWN     = RawConfig.EMBARK_RETRY_COOLDOWN or 2.5,
@@ -57,21 +57,21 @@ local Config = {
     NODE_AVOID_USED           = (RawConfig.NODE_AVOID_USED ~= nil) and RawConfig.NODE_AVOID_USED or true,
 
     -- [Rewards & Passives]
-    AUTO_CLAIM_REWARDS        = (RawConfig.AUTO_CLAIM_REWARDS ~= nil) and RawConfig.AUTO_CLAIM_REWARDS or true,
-    REWARD_SCAN_DELAY         = RawConfig.REWARD_SCAN_DELAY or 0.25,
-    REWARD_ACTION_DELAY       = RawConfig.REWARD_ACTION_DELAY or 0.35,
-    REWARD_FINISH_DELAY       = RawConfig.REWARD_FINISH_DELAY or 0.60,
-    REWARD_CARD_STRATEGY      = RawConfig.REWARD_CARD_STRATEGY or "HighestRarity",
-    REWARD_PASSIVE_STRATEGY   = RawConfig.REWARD_PASSIVE_STRATEGY or "Priority",
-    PASSIVE_DEFAULT_PRIORITY  = RawConfig.PASSIVE_DEFAULT_PRIORITY or 10,
-    CUSTOM_PASSIVE_PRIORITY   = RawConfig.CUSTOM_PASSIVE_PRIORITY or {},
-    AUTO_CLAIM_CONDENSE       = (RawConfig.AUTO_CLAIM_CONDENSE ~= nil) and RawConfig.AUTO_CLAIM_CONDENSE or true,
+    AUTO_CLAIM_REWARDS         = (RawConfig.AUTO_CLAIM_REWARDS ~= nil) and RawConfig.AUTO_CLAIM_REWARDS or true,
+    REWARD_SCAN_DELAY          = RawConfig.REWARD_SCAN_DELAY or 0.25,
+    REWARD_ACTION_DELAY        = RawConfig.REWARD_ACTION_DELAY or 0.35,
+    REWARD_FINISH_DELAY        = RawConfig.REWARD_FINISH_DELAY or 0.60,
+    REWARD_CARD_STRATEGY       = RawConfig.REWARD_CARD_STRATEGY or "HighestRarity",
+    REWARD_PASSIVE_STRATEGY    = RawConfig.REWARD_PASSIVE_STRATEGY or "Priority",
+    PASSIVE_DEFAULT_PRIORITY   = RawConfig.PASSIVE_DEFAULT_PRIORITY or 10,
+    CUSTOM_PASSIVE_PRIORITY    = RawConfig.CUSTOM_PASSIVE_PRIORITY or {},
+    AUTO_CLAIM_CONDENSE        = (RawConfig.AUTO_CLAIM_CONDENSE ~= nil) and RawConfig.AUTO_CLAIM_CONDENSE or true,
 
     -- [Rest Sites]
-    AUTO_CONFIRM_REST         = (RawConfig.AUTO_CONFIRM_REST ~= nil) and RawConfig.AUTO_CONFIRM_REST or true,
-    REST_ACTION               = RawConfig.REST_ACTION or "Heal",
-    REST_ACTION_DELAY         = RawConfig.REST_ACTION_DELAY or 0.45,
-    EMERGENCY_REST_HP_PCT     = RawConfig.EMERGENCY_REST_HP_PCT or 45,
+    AUTO_CONFIRM_REST          = (RawConfig.AUTO_CONFIRM_REST ~= nil) and RawConfig.AUTO_CONFIRM_REST or true,
+    REST_ACTION                = RawConfig.REST_ACTION or "Heal",
+    REST_ACTION_DELAY          = RawConfig.REST_ACTION_DELAY or 0.45,
+    EMERGENCY_REST_HP_PCT      = RawConfig.EMERGENCY_REST_HP_PCT or 45,
 
     -- [Event Dialogues]
     AUTO_EVENT_RESOLVER        = (RawConfig.AUTO_EVENT_RESOLVER ~= nil) and RawConfig.AUTO_EVENT_RESOLVER or true,
@@ -1412,33 +1412,62 @@ function Combat.processTurn()
     Combat.tryEndTurn()
 end
 
--- Hardened Combat State Checker (Fixes False Negative on Enemy Turn / Animations)
+-- Completely hardened combat detector
 function Combat.isInActiveCombat(): boolean
-    if Refs.LocalPlayer:GetAttribute("Active") == true then return true end
-    if Refs.LocalPlayer:GetAttribute("IsYourTurn") == true then return true end
-    if not (Refs.CombatGui and Refs.CombatGui.Enabled) then return false end
+    if Utils.isPlayerDead() then return false end
 
-    local rewardFrame = Refs.DungeonGui:FindFirstChild("RewardFrame")
-    if rewardFrame and rewardFrame.Visible then return false end
+    -- Primary: Check if CombatGui is currently rendering and active
+    if Refs.CombatGui and Refs.CombatGui.Enabled then
+        local rew = Refs.DungeonGui:FindFirstChild("RewardFrame")
+        if rew and rew.Visible then return false end
+        local dial = Refs.DialogueContainer or Refs.DungeonGui:FindFirstChild("DialogueContainer")
+        if dial and dial.Visible then return false end
+        local rest = Refs.DungeonGui:FindFirstChild("RestContainer") or Refs.DungeonGui:FindFirstChild("RestFrame")
+        if rest and rest.Visible then return false end
+        local boss = Refs.DungeonGui:FindFirstChild("PickBossFrame")
+        if boss and boss.Visible then return false end
+        return true
+    end
 
-    local finishGui = Refs.LocalPlayer.PlayerGui:FindFirstChild("FinishGui")
-    if finishGui and finishGui.Enabled then return false end
+    -- Secondary: Check player turn and active clash attributes
+    if Refs.LocalPlayer:GetAttribute("IsYourTurn") == true or Refs.LocalPlayer:GetAttribute("Active") == true then
+        return true
+    end
 
-    local dialogue = Refs.DungeonGui:FindFirstChild("DialogueContainer")
-    if dialogue and dialogue.Visible then return false end
+    -- Tertiary: Check alive entities on field
+    local enemies = Combat.getAliveEnemies()
+    if #enemies > 0 then
+        return true
+    end
 
-    local rest = Refs.DungeonGui:FindFirstChild("RestContainer") or Refs.DungeonGui:FindFirstChild("RestFrame")
-    if rest and rest.Visible then return false end
-
-    local pickBoss = Refs.DungeonGui:FindFirstChild("PickBossFrame")
-    if pickBoss and pickBoss.Visible then return false end
-
-    return true
+    return false
 end
 
 -- ---------------------------------------------------------------------
 -- DUNGEON AUTOMATION 
 -- ---------------------------------------------------------------------
+
+function Dungeon.isInTransition(): boolean
+    if Refs.TransitionGui and Refs.TransitionGui.Enabled then return true end
+    local loadGui = Refs.LocalPlayer.PlayerGui:FindFirstChild("LoadingGui")
+    if loadGui and loadGui.Enabled then return true end
+    return false
+end
+
+function Dungeon.isAnyModalOpen(): boolean
+    local rew = Refs.DungeonGui:FindFirstChild("RewardFrame")
+    if rew and rew.Visible then return true end
+    local dial = Refs.DialogueContainer or Refs.DungeonGui:FindFirstChild("DialogueContainer")
+    if dial and dial.Visible then return true end
+    local rest = Refs.DungeonGui:FindFirstChild("RestContainer") or Refs.DungeonGui:FindFirstChild("RestFrame")
+    if rest and rest.Visible then return true end
+    local boss = Refs.DungeonGui:FindFirstChild("PickBossFrame")
+    if boss and boss.Visible then return true end
+    local finish = Refs.LocalPlayer.PlayerGui:FindFirstChild("FinishGui")
+    if finish and finish.Enabled then return true end
+    return false
+end
+
 function Dungeon.handleAutoRetry()
     if not Config.AUTO_RETRY_ENABLED then return false end
     local finishGui = Refs.LocalPlayer.PlayerGui:FindFirstChild("FinishGui")
@@ -1828,7 +1857,7 @@ function Dungeon.registerNode(name, data)
     }
 end
 
--- Network Listeners
+-- Network state listeners
 do
     local drawInfo = Refs.Events:FindFirstChild("DrawNodeInfo")
     if drawInfo then
@@ -1838,7 +1867,6 @@ do
             for name, data in pairs(map) do if type(data) == "table" then Dungeon.registerNode(name, data) end end
         end)
     end
-
     local dist = Refs.Events:FindFirstChild("NodeDistIncrease")
     if dist then
         dist.OnClientEvent:Connect(function(furthest, finishedName)
@@ -1846,7 +1874,6 @@ do
             if type(finishedName) == "string" and finishedName ~= "" then State.FinishedNodes[finishedName] = true end
         end)
     end
-
     local firstDraw = Refs.Events:FindFirstChild("DrawNodesForFirstTime")
     if firstDraw then
         firstDraw.OnClientEvent:Connect(function(map, furthest)
@@ -1860,17 +1887,16 @@ do
             end
         end)
     end
-
-    local drawData = Refs.Events:FindFirstChild("DrawNodeData")
-    if drawData and drawData:IsA("BindableEvent") then
-        drawData.Event:Connect(function(data)
+    local drawNodeData = Refs.Events:FindFirstChild("DrawNodeData")
+    if drawNodeData and drawNodeData:IsA("BindableEvent") then
+        drawNodeData.Event:Connect(function(data)
             if type(data) == "table" then
                 if data.FurthestNodeRow then
                     State.FurthestRow = Utils.toNumber(data.FurthestNodeRow) or State.FurthestRow
                 end
                 if type(data.DungeonNodes) == "table" then
-                    for nodeName, _ in pairs(data.DungeonNodes) do
-                        State.FinishedNodes[nodeName] = true
+                    for name, v in pairs(data.DungeonNodes) do
+                        if v then State.FinishedNodes[name] = true end
                     end
                 end
             end
@@ -1887,22 +1913,20 @@ function Dungeon.isNodeSelectable(rec)
     if not rec then return false end
     local name = rec.Name
     if State.FinishedNodes[name] then return false end
-
-    -- Absolute combat and active player guards
-    if Combat.isInActiveCombat() then return false end
-    if Refs.CombatGui and Refs.CombatGui.Enabled then return false end
-    if Refs.LocalPlayer:GetAttribute("Active") or Refs.LocalPlayer:GetAttribute("IsYourTurn") then return false end
-
     if Config.NODE_AVOID_USED and Refs.PlayerStats.DungeonNodes and Refs.PlayerStats.DungeonNodes[name] then
         State.FinishedNodes[name] = true
         return false
     end
 
+    -- Strict check: never select nodes if in active combat, in transition, or during modals
+    if Combat.isInActiveCombat() then return false end
+    if Dungeon.isInTransition() then return false end
+    if Dungeon.isAnyModalOpen() then return false end
+
     local curRow = State.FurthestRow
-    if Utils.toNumber(Refs.PlayerStats.FurthestNodeRow) then
+    if Refs.PlayerStats and Utils.toNumber(Refs.PlayerStats.FurthestNodeRow) then
         curRow = math.max(curRow, Utils.toNumber(Refs.PlayerStats.FurthestNodeRow))
     end
-
     if Config.NODE_STRICT_ROW_LOCK and curRow > 0 then
         if rec.Row ~= curRow then return false end
     elseif curRow > 0 and rec.Row > curRow then
@@ -1920,25 +1944,6 @@ function Dungeon.isNodeSelectable(rec)
         if colorMatch(col, INACTIVE_COLOR) or (col.R < 0.35 and col.G < 0.35 and col.B < 0.35) then return false end
         if not (colorMatch(col, ACTIVE_COLOR) or (col.R > 0.5 and col.G > 0.5)) then return false end
     end
-
-    -- Strict Screen Overlays Guard
-    if Refs.TransitionGui and Refs.TransitionGui.Enabled then return false end
-    if Refs.DialogueContainer and Refs.DialogueContainer.Visible then return false end
-
-    local restC = Refs.DungeonGui:FindFirstChild("RestContainer") or Refs.DungeonGui:FindFirstChild("RestFrame")
-    if restC and restC.Visible then return false end
-
-    local rewF = Refs.DungeonGui:FindFirstChild("RewardFrame")
-    if rewF and rewF.Visible then return false end
-
-    local bossF = Refs.DungeonGui:FindFirstChild("PickBossFrame")
-    if bossF and bossF.Visible then return false end
-
-    local loadingGui = Refs.LocalPlayer.PlayerGui:FindFirstChild("LoadingGui")
-    if loadingGui and loadingGui.Enabled then return false end
-
-    local finishGui = Refs.LocalPlayer.PlayerGui:FindFirstChild("FinishGui")
-    if finishGui and finishGui.Enabled then return false end
 
     return true
 end
@@ -1986,6 +1991,9 @@ end
 function Dungeon.AutoNodeThink()
     if Utils.isPlayerDead() then return nil end
     if Combat.isInActiveCombat() then return nil end
+    if Dungeon.isInTransition() then return nil end
+    if Dungeon.isAnyModalOpen() then return nil end
+    if not (Refs.DungeonGui and Refs.DungeonGui.Enabled and Refs.DungeonNodeContainer and Refs.DungeonNodeContainer.Visible) then return nil end
 
     -- Rebuild Graph
     ChildrenOf, simMemo = {}, {}
@@ -2082,7 +2090,9 @@ end
 function Dungeon.embarkToNode(rec)
     if Utils.isPlayerDead() then return false end
     if Combat.isInActiveCombat() then return false end
-    if not (rec and rec.Frame and rec.Frame.Parent) then return false end
+    if Dungeon.isInTransition() then return false end
+    if Dungeon.isAnyModalOpen() then return false end
+    if not (rec and rec.Frame and rec.Frame.Parent and rec.Frame.Visible) then return false end
 
     local now = os.clock()
     if now - State.LastEmbarkAt < Config.AUTO_NODE_DELAY then return false end
@@ -2091,17 +2101,18 @@ function Dungeon.embarkToNode(rec)
 
     State.LastEmbarkName, State.LastEmbarkAt = rec.Name, now
 
-    -- Fire native UI interaction; fallback to Remote if button isn't available
     local confirmBtn = rec.Frame:FindFirstChild("Confirm")
-    if confirmBtn then
+    if confirmBtn and (confirmBtn:IsA("GuiButton") or confirmBtn:IsA("TextButton") or confirmBtn:IsA("ImageButton")) and confirmBtn.Visible then
         Utils.fireButtonClick(confirmBtn)
+    end
+
+    local voteEv = Refs.Events:FindFirstChild("VoteForNode")
+    if voteEv and voteEv:IsA("RemoteEvent") then
+        pcall(function() voteEv:FireServer(rec.Name) end)
     else
-        local voteEv = Refs.Events:FindFirstChild("VoteForNode")
-        if voteEv then
-            pcall(function() voteEv:FireServer(rec.Name) end)
-        else
-            local legacy = Refs.Events:FindFirstChild("NodeSelect")
-            if legacy then pcall(function() legacy:FireServer(type(rec.Raw) == "table" and rec.Raw or rec.Name) end) end
+        local legacy = Refs.Events:FindFirstChild("NodeSelect")
+        if legacy and legacy:IsA("RemoteEvent") then
+            pcall(function() legacy:FireServer(type(rec.Raw) == "table" and rec.Raw or rec.Name) end)
         end
     end
 
@@ -2682,7 +2693,7 @@ end
 -- 4. MASTER WORKER LOOPS
 -- =====================================================================
 
--- [Worker 1: Combat Execution Loop]
+-- [Worker 1: Hardened Combat Loop]
 task.spawn(function()
     while true do
         task.wait(0.15)
@@ -2701,59 +2712,65 @@ task.spawn(function()
     while true do
         task.wait(Config.NODE_SCAN_INTERVAL)
 
-        -- 1. Auto-Retry always checked first
-        local okRetry, resRetry = pcall(Dungeon.handleAutoRetry)
-        if not (okRetry and resRetry) then
+        if not Utils.isPlayerDead() then
+            -- 1. Auto-Retry always checked first
+            local retried = false
+            local okRetry, resRetry = pcall(Dungeon.handleAutoRetry)
+            if okRetry and resRetry then
+                retried = true
+            end
 
-            -- 2. Boss Vote
-            local okBoss, resBoss = pcall(Dungeon.handleAutoBossVote)
-            if not (okBoss and resBoss) then
+            if not retried then
+                local inCombat = Combat.isInActiveCombat()
+                local inTransition = Dungeon.isInTransition()
+                local modalOpen = Dungeon.isAnyModalOpen()
 
-                -- 3. Standard Exploration Automation
-                if State.IsAutoNodeRunning and Config.AUTO_NODE_ENABLED and not Utils.isPlayerDead() then
-                    local inCombat = Combat.isInActiveCombat()
-                    local inTransition = (Refs.TransitionGui and Refs.TransitionGui.Enabled)
-                    local inLoading = (Refs.LocalPlayer.PlayerGui:FindFirstChild("LoadingGui") and Refs.LocalPlayer.PlayerGui.LoadingGui.Enabled)
+                -- Strict isolation: Never touch exploration or map if combat or transitions are active
+                if not inCombat and not inTransition then
+                    -- 2. Boss Vote
+                    local bossVoted = false
+                    local okBoss, resBoss = pcall(Dungeon.handleAutoBossVote)
+                    if okBoss and resBoss then
+                        bossVoted = true
+                    end
 
-                    -- STRICT LOCK: Do not navigate or think while in combat or transitioning
-                    if not inCombat and not inTransition and not inLoading then
-                        local handled = false
-
-                        -- Priority 1: Rewards
-                        local okRew, resRew = pcall(Dungeon.handleRewards)
-                        if okRew and resRew then handled = true end
-
-                        -- Priority 2: Events
-                        if not handled then
-                            local okEv, resEv = pcall(Dungeon.processAutoEvent)
-                            if okEv and resEv then handled = true end
+                    if not bossVoted and State.IsAutoNodeRunning and Config.AUTO_NODE_ENABLED then
+                        -- 3. Standard Exploration Automation
+                        local rewHandled = false
+                        local rewFrame = Refs.DungeonGui:FindFirstChild("RewardFrame")
+                        if rewFrame and rewFrame.Visible then
+                            pcall(Dungeon.handleRewards)
+                            rewHandled = true
                         end
 
-                        -- Priority 3: Rest Sites
-                        if not handled then
-                            local okRest, resRest = pcall(Dungeon.handleRestSite)
-                            if okRest and resRest then handled = true end
+                        local evHandled = false
+                        local dialContainer = Refs.DialogueContainer or Refs.DungeonGui:FindFirstChild("DialogueContainer")
+                        if not rewHandled and dialContainer and dialContainer.Visible then
+                            pcall(Dungeon.processAutoEvent)
+                            evHandled = true
                         end
 
-                        -- Priority 4: Map Pathing & Embarking
-                        if not handled then
-                            -- Final sanity check before calculating next node
-                            if not Combat.isInActiveCombat() and not (Refs.CombatGui and Refs.CombatGui.Enabled) then
-                                pcall(function()
-                                    local target = Dungeon.AutoNodeThink()
-                                    if not target then return end
+                        local restHandled = false
+                        local restContainer = Refs.DungeonGui:FindFirstChild("RestContainer") or Refs.DungeonGui:FindFirstChild("RestFrame")
+                        if not rewHandled and not evHandled and restContainer and restContainer.Visible then
+                            pcall(Dungeon.handleRestSite)
+                            restHandled = true
+                        end
 
-                                    if Config.BOSS_REQUIRES_MANUAL and target.Type == "Boss" then
-                                        if target.Name ~= State.LastDecisionKey or os.clock() - State.LastDecisionLogAt > 5 then
-                                            State.LastDecisionKey, State.LastDecisionLogAt = target.Name, os.clock()
-                                            UI.Log("PATH", "Boss row reached — manual embark required.", "#FFD54F")
-                                        end
-                                        return
+                        -- 4. Map Node Embarkation (Only when all modals, combat, and transitions are clean)
+                        if not rewHandled and not evHandled and not restHandled and not modalOpen then
+                            pcall(function()
+                                local target = Dungeon.AutoNodeThink()
+                                if not target then return end
+                                if Config.BOSS_REQUIRES_MANUAL and target.Type == "Boss" then
+                                    if target.Name ~= State.LastDecisionKey or os.clock() - State.LastDecisionLogAt > 5 then
+                                        State.LastDecisionKey, State.LastDecisionLogAt = target.Name, os.clock()
+                                        UI.Log("PATH", "Boss row reached — manual embark required.", "#FFD54F")
                                     end
-
-                                    Dungeon.embarkToNode(target)
-                                end)
-                            end
+                                    return
+                                end
+                                Dungeon.embarkToNode(target)
+                            end)
                         end
                     end
                 end
