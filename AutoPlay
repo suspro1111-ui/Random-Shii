@@ -1,0 +1,3417 @@
+
+--=====================================================================
+-- CONFIGURATION FALLBACK DEFAULTS
+-- (Picks up values from your Master Configuration; uses safe defaults if nil)
+--=====================================================================
+local CombatMode                = COMBAT_START_MODE or 0
+local IsBotRunning              = CombatMode > 0
+local IsAutoNodeRunning         = (AUTO_NODE_ENABLED ~= nil) and AUTO_NODE_ENABLED or true
+
+-- E.G.O Configuration & Threat Gate Fallbacks
+local AUTO_USE_EGO              = (AUTO_USE_EGO ~= nil) and AUTO_USE_EGO or false
+local EGO_USAGE_MODE            = EGO_USAGE_MODE or "Emergency"
+local EGO_MIN_THREAT_DAMAGE     = EGO_MIN_THREAT_DAMAGE or 20      -- Flat minimum incoming damage
+local EGO_MIN_THREAT_DAMAGE_PCT = EGO_MIN_THREAT_DAMAGE_PCT or 25  -- Percentage of Max HP incoming damage
+local EGO_USE_ON_LETHAL         = (EGO_USE_ON_LETHAL ~= nil) and EGO_USE_ON_LETHAL or true
+local EGO_MIN_POSTURE_LIMIT     = EGO_MIN_POSTURE_LIMIT or 10
+
+-- Timing & Engine Fallbacks
+local ACTION_DELAY              = ACTION_DELAY or 0.40
+local ACTION_POST_DELAY         = ACTION_POST_DELAY or 0.35
+local CLASH_MAX_TIMEOUT         = CLASH_MAX_TIMEOUT or 12.0
+local TURN_GRACE_TIME           = TURN_GRACE_TIME or 2.0
+local MAX_ACTIONS_PER_TURN      = MAX_ACTIONS_PER_TURN or 12
+local END_TURN_COOLDOWN         = END_TURN_COOLDOWN or 1.0
+local ENCOUNTER_SYNC_TIMEOUT    = ENCOUNTER_SYNC_TIMEOUT or 8.0
+local SYNC_LOG_THROTTLE          = SYNC_LOG_THROTTLE or 1.0
+local SYNC_SETTLE_DELAY          = SYNC_SETTLE_DELAY or 0.2
+local RESIST_CACHE_TIME          = RESIST_CACHE_TIME or 3.0
+
+-- Combat Tactics Fallbacks
+local PLAY_LEFTOVER_EVADES      = (PLAY_LEFTOVER_EVADES ~= nil) and PLAY_LEFTOVER_EVADES or false
+local DEFENSE_SWAP_MAX_RANK     = DEFENSE_SWAP_MAX_RANK or 2
+local PREFER_EVADE_OVER_GUARD   = (PREFER_EVADE_OVER_GUARD ~= nil) and PREFER_EVADE_OVER_GUARD or true
+local KEEP_DEFENSE_RESERVE      = KEEP_DEFENSE_RESERVE or 0
+local LOW_POSTURE_LIMIT         = LOW_POSTURE_LIMIT or 0
+local TARGET_STAGGERED_FIRST    = (TARGET_STAGGERED_FIRST ~= nil) and TARGET_STAGGERED_FIRST or true
+local TARGET_KILLABLE_FIRST     = (TARGET_KILLABLE_FIRST ~= nil) and TARGET_KILLABLE_FIRST or true
+local KILL_MARGIN               = KILL_MARGIN or 1.0
+local AGGRO_FOCUS_FIRE          = (AGGRO_FOCUS_FIRE ~= nil) and AGGRO_FOCUS_FIRE or true
+local THREAT_TIEBREAK_SPEED     = (THREAT_TIEBREAK_SPEED ~= nil) and THREAT_TIEBREAK_SPEED or true
+
+local CLASH_OVERWHELM_SCORE     = CLASH_OVERWHELM_SCORE or 4
+local CLASH_ADVANTAGE_SCORE     = CLASH_ADVANTAGE_SCORE or 0
+local CLASH_RISKY_SCORE         = CLASH_RISKY_SCORE or -4
+
+-- Node & Pathing Fallbacks
+local NODE_SCAN_INTERVAL        = NODE_SCAN_INTERVAL or 0.4
+local AUTO_NODE_DELAY           = AUTO_NODE_DELAY or 0.6
+local EMBARK_RETRY_COOLDOWN     = EMBARK_RETRY_COOLDOWN or 2.5
+local NODE_STRICT_ROW_LOCK      = (NODE_STRICT_ROW_LOCK ~= nil) and NODE_STRICT_ROW_LOCK or true
+local NODE_AVOID_USED           = (NODE_AVOID_USED ~= nil) and NODE_AVOID_USED or true
+local BOSS_REQUIRES_MANUAL      = (BOSS_REQUIRES_MANUAL ~= nil) and BOSS_REQUIRES_MANUAL or false
+local PREFERRED_BRANCH          = PREFERRED_BRANCH or "Smart"
+
+-- Rewards & Rest Fallbacks
+local AUTO_CLAIM_REWARDS         = (AUTO_CLAIM_REWARDS ~= nil) and AUTO_CLAIM_REWARDS or true
+local REWARD_SCAN_DELAY          = REWARD_SCAN_DELAY or 0.25
+local REWARD_ACTION_DELAY        = REWARD_ACTION_DELAY or 0.35
+local REWARD_FINISH_DELAY        = REWARD_FINISH_DELAY or 0.60
+local REWARD_CARD_STRATEGY       = REWARD_CARD_STRATEGY or "HighestRarity"
+local REWARD_PASSIVE_STRATEGY    = REWARD_PASSIVE_STRATEGY or "Priority"
+local PASSIVE_DEFAULT_PRIORITY   = PASSIVE_DEFAULT_PRIORITY or 10
+local CUSTOM_PASSIVE_PRIORITY    = CUSTOM_PASSIVE_PRIORITY or {}
+local AUTO_CLAIM_CONDENSE        = (AUTO_CLAIM_CONDENSE ~= nil) and AUTO_CLAIM_CONDENSE or true
+
+local AUTO_CONFIRM_REST          = (AUTO_CONFIRM_REST ~= nil) and AUTO_CONFIRM_REST or true
+local REST_ACTION                = REST_ACTION or "Heal"
+local REST_ACTION_DELAY          = REST_ACTION_DELAY or 0.45
+local EMERGENCY_REST_HP_PCT      = EMERGENCY_REST_HP_PCT or 45
+
+-- Event Resolver Fallbacks
+local AUTO_EVENT_RESOLVER        = (AUTO_EVENT_RESOLVER ~= nil) and AUTO_EVENT_RESOLVER or true
+local EVENT_STEP_DELAY           = EVENT_STEP_DELAY or 0.45
+local EVENT_OPTION_STRATEGY      = EVENT_OPTION_STRATEGY or "Guaranteed"
+local EVENT_ALLOW_RISKY_FALLBACK = (EVENT_ALLOW_RISKY_FALLBACK ~= nil) and EVENT_ALLOW_RISKY_FALLBACK or true
+local CUSTOM_EVENT_CHOICES       = CUSTOM_EVENT_CHOICES or {}
+
+-- Boss & Failsafe Watchdog Fallbacks
+local AUTO_BOSS_VOTE_ENABLED     = (AUTO_BOSS_VOTE_ENABLED ~= nil) and AUTO_BOSS_VOTE_ENABLED or true
+local BOSS_VOTE_STRATEGY         = BOSS_VOTE_STRATEGY or "Priority"
+local BOSS_VOTE_COOLDOWN         = BOSS_VOTE_COOLDOWN or 1.0
+local BOSS_DEFAULT_PRIORITY       = BOSS_DEFAULT_PRIORITY or 10
+local BOSS_PRIORITY_LIST         = BOSS_PRIORITY_LIST or {}
+
+local STOP_ON_DEATH              = (STOP_ON_DEATH ~= nil) and STOP_ON_DEATH or true
+local AUTO_RETRY_ENABLED         = (AUTO_RETRY_ENABLED ~= nil) and AUTO_RETRY_ENABLED or true
+local RETRY_DELAY                = RETRY_DELAY or 1.2
+local ENABLED_RUN_TIMEOUT        = (ENABLED_RUN_TIMEOUT ~= nil) and ENABLED_RUN_TIMEOUT or true
+local RUN_TIMEOUT                = RUN_TIMEOUT or 3600
+local ENABLED_INACTIVITY_TIMEOUT = (ENABLED_INACTIVITY_TIMEOUT ~= nil) and ENABLED_INACTIVITY_TIMEOUT or true
+local INACTIVITY_TIMEOUT         = INACTIVITY_TIMEOUT or 90
+
+-- Pathing Weights Fallbacks
+local NODE_TYPE_PRIORITIES = NODE_TYPE_PRIORITIES or {
+    ["Treasure"] = 100, ["Rest"] = 80, ["Shop"] = 75, ["Event"] = 70,
+    ["Battle"] = 45, ["EasyBattle"] = 30, ["Boss"] = 20, ["Elite"] = 15
+}
+local SMART_PATH_WEIGHTS = SMART_PATH_WEIGHTS or {
+    ["Treasure"] = 55, ["Rest"] = 45, ["Event"] = 40, ["Shop"] = 30,
+    ["Battle"] = 10, ["EasyBattle"] = 5, ["Elite"] = -80, ["Boss"] = 0
+}
+local SMART_SYNERGY = SMART_SYNERGY or {
+    VALUABLE_MIN = 25, FULL_SUPPORT = 2, LONE_SUPPORT = 0.35,
+    UNKNOWN_TYPE = 50, LANE_TIEBREAK = 0.08, MAX_DEPTH = 15
+}
+local PATH_VERBOSE   = (PATH_VERBOSE ~= nil) and PATH_VERBOSE or true
+local PATH_LOG_ROUTE = (PATH_LOG_ROUTE ~= nil) and PATH_LOG_ROUTE or true
+
+-- UI Fallbacks
+local MAX_LOG_LINES = MAX_LOG_LINES or 50
+local ACRYLIC = ACRYLIC or { BlurEnabled = true, Distance = 0.001 }
+local RICH_TEXT_PASSTHROUGH = (RICH_TEXT_PASSTHROUGH ~= nil) and RICH_TEXT_PASSTHROUGH or true
+local UI_LAYOUT = UI_LAYOUT or {
+    ToolbarAnchorPoint = Vector2.new(0.5, 0),
+    ToolbarPosition = UDim2.new(0.5, 0, 0, 8),
+    ToolbarSize = UDim2.new(0, 430, 0, 40),
+    ConsolePosition = UDim2.new(0.63, 0, 0.16, 0),
+    ConsoleSize = UDim2.new(0, 450, 0, 260),
+    MinConsoleSize = Vector2.new(340, 180),
+    MaxConsoleSize = Vector2.new(850, 650),
+    ConsoleVisibleOnStart = true,
+    LogFont = Enum.Font.RobotoMono,
+    LogTextSize = 11,
+}
+local THEME = THEME or {
+    AcrylicMain = Color3.fromRGB(20, 14, 32),
+    AcrylicGradient = ColorSequence.new({
+        ColorSequenceKeypoint.new(0, Color3.fromRGB(150, 100, 255)),
+        ColorSequenceKeypoint.new(1, Color3.fromRGB(35, 18, 55)),
+    }),
+    AcrylicBorder = Color3.fromRGB(185, 155, 255),
+    AcrylicNoise = 0.90,
+    Glass = Color3.fromRGB(20, 14, 30),
+    GlassAlt = Color3.fromRGB(32, 22, 50),
+    GlassDeep = Color3.fromRGB(13, 9, 22),
+    GlassTint = 0.38,
+    WellTint = 0.28,
+    EdgeLight = Color3.fromRGB(215, 195, 255),
+    Accent = Color3.fromRGB(138, 92, 255),
+    AccentSoft = Color3.fromRGB(175, 140, 255),
+    Text = Color3.fromRGB(242, 240, 252),
+    Muted = Color3.fromRGB(165, 155, 188),
+    SubMuted = Color3.fromRGB(115, 102, 138),
+    Good = Color3.fromRGB(46, 204, 113),
+    Warn = Color3.fromRGB(241, 154, 38),
+    Bad = Color3.fromRGB(235, 77, 75),
+}
+
+--=====================================================================
+-- SERVICES & LOCAL REFERENCES
+--=====================================================================
+local Players = game:GetService("Players")
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local UserInputService = game:GetService("UserInputService")
+local CoreGui = game:GetService("CoreGui")
+local Workspace = game:GetService("Workspace")
+local Lighting = game:GetService("Lighting")
+local TweenService = game:GetService("TweenService")
+
+--- Lucide Icon Loader
+type Icon = {
+    Url: string,
+    Id: number,
+    IconName: string,
+    ImageRectOffset: Vector2,
+    ImageRectSize: Vector2,
+}
+
+type IconModule = {
+    Icons: { string },
+    GetAsset: (Name: string) -> Icon?,
+}
+
+local FetchIcons, Icons = pcall(function()
+    return (loadstring(
+        game:HttpGet("https://raw.githubusercontent.com/mstudio45/lucide-roblox-direct/refs/heads/main/source.lua")
+    ) :: () -> IconModule)()
+end)
+
+local function IsValidCustomIcon(Icon: string)
+    return typeof(Icon) == "string" and (Icon:match("^rbxasset://textures/") or Icon:match("roblox%.com/asset/%?id=") or Icon:match("rbxthumb://type="))
+end
+
+local function IsCustomAssetIcon(Icon: string, IncludeAssetId: boolean)
+    return typeof(Icon) == "string" and (Icon:match("^content://") or (Icon:match("^rbxasset://%x+/") or Icon:match("^rbxasset://[^/]+/")) or (IncludeAssetId == true and Icon:match("^rbxassetid://")))
+end
+
+local function GetIcon(IconName: string): Icon?
+    if not FetchIcons or not Icons then return nil end
+    local Success, Icon = pcall(Icons.GetAsset, IconName)
+    if not Success or typeof(Icon) ~= "table" then return nil end
+    return Icon
+end
+
+local function GetCustomIcon(IconName: string): Icon?
+    if not IconName then return nil end
+    if tonumber(IconName) then
+        IconName = string.format("rbxassetid://%s", tostring(IconName))
+    end
+    if IsCustomAssetIcon(IconName, true) or IsValidCustomIcon(IconName) then
+        return {
+            Url = IconName,
+            Id = 0,
+            IconName = IconName,
+            ImageRectOffset = Vector2.zero,
+            ImageRectSize = Vector2.zero,
+        }
+    end
+    return GetIcon(IconName)
+end
+
+local function SetIcon(imageLabel: ImageLabel, iconName: string)
+    if not (imageLabel and imageLabel:IsA("ImageLabel")) then return end
+    local icon = GetCustomIcon(iconName)
+    if icon then
+        imageLabel.Image = icon.Url or ""
+        imageLabel.ImageRectOffset = icon.ImageRectOffset or Vector2.zero
+        imageLabel.ImageRectSize = icon.ImageRectSize or Vector2.zero
+    else
+        imageLabel.Image = ""
+        imageLabel.ImageRectOffset = Vector2.zero
+        imageLabel.ImageRectSize = Vector2.zero
+    end
+end
+
+local LocalPlayer = Players.LocalPlayer
+local PlayerScripts = LocalPlayer:WaitForChild("PlayerScripts")
+
+local LockOnSystem = require(PlayerScripts:WaitForChild("LockOnSystem"))
+local PlayerStats = require(PlayerScripts:WaitForChild("PlayerStats"))
+local CachedBattleUnits = require(ReplicatedStorage.ClientModules:WaitForChild("CachedBattleUnitModels"))
+
+local Events = ReplicatedStorage:WaitForChild("Events")
+local playAttack = Events:WaitForChild("playAttack")
+local playEGOAttack = Events:WaitForChild("playEGOAttack")
+local endTurn = Events:WaitForChild("EndTurn")
+local clashPredictor = Events:WaitForChild("ClashPredictor")
+
+local CombatGui = LocalPlayer.PlayerGui:WaitForChild("CombatGui")
+local HandContainer = CombatGui:WaitForChild("Hand")
+local EnemyContainer = CombatGui:WaitForChild("EnemyUnitContainer")
+
+local DungeonGui = LocalPlayer.PlayerGui:WaitForChild("DungeonGui")
+local DungeonNodeContainer = DungeonGui:WaitForChild("DungeonNodeContainer")
+local DialogueContainer = DungeonGui:WaitForChild("DialogueContainer")
+local TransitionGui = LocalPlayer.PlayerGui:WaitForChild("TransitionGui")
+
+----------------------------------------------------------------------
+-- BUTTON CLICK HELPER (firesignal + Activated fallback)
+----------------------------------------------------------------------
+local function fireButtonClick(button)
+    if not button then return end
+    pcall(function()
+        if firesignal then
+            firesignal(button.MouseButton1Click)
+            if button:IsA("GuiButton") then
+                firesignal(button.Activated)
+            end
+        elseif getconnections then
+            for _, conn in ipairs(getconnections(button.MouseButton1Click)) do
+                if conn.Function then conn.Function() elseif conn.Fire then conn:Fire() end
+            end
+            if button:IsA("GuiButton") then
+                for _, conn in ipairs(getconnections(button.Activated)) do
+                    if conn.Function then conn.Function() elseif conn.Fire then conn:Fire() end
+                end
+            end
+        end
+    end)
+end
+
+----------------------------------------------------------------------
+-- ENCOUNTER SYNC & COMBAT END WATCHERS
+----------------------------------------------------------------------
+local LastEnemySyncAt = 0
+local SyncHoldSince = nil
+local LastLogAt = os.clock()
+
+task.spawn(function()
+    local ok, ev = pcall(function() return Events:WaitForChild("SyncBattleUnits", 15) end)
+    if ok and ev then
+        ev.OnClientEvent:Connect(function() LastEnemySyncAt = os.clock() end)
+    end
+end)
+
+LocalPlayer:GetAttributeChangedSignal("IsYourTurn"):Connect(function()
+    if not LocalPlayer:GetAttribute("IsYourTurn") then
+        SyncHoldSince = nil
+        LocalPlayer:SetAttribute("Active", false)
+    end
+end)
+
+task.spawn(function()
+    local ok, ev = pcall(function() return Events:WaitForChild("EndCombat", 15) end)
+    if ok and ev then
+        ev.OnClientEvent:Connect(function()
+            LocalPlayer:SetAttribute("Active", false)
+            SyncHoldSince = nil
+        end)
+    end
+end)
+
+----------------------------------------------------------------------
+-- RUN LENGTH TIME FORMATTER & RUN SECONDS CALCULATOR
+----------------------------------------------------------------------
+local function getRunTime(): string
+    local ok, text = pcall(function()
+        local lbl = DungeonGui:FindFirstChild("TotalTimeCountLabel")
+        return lbl and lbl.Text
+    end)
+    if ok and type(text) == "string" and text ~= "" then
+        local match = text:match("(%d+:%d+:%d+)") or text:match("(%d+:%d+)")
+        if match then return match end
+    end
+    return os.date("%H:%M:%S")
+end
+
+local function getRunTimeInSeconds(): number
+    local ok, text = pcall(function()
+        local lbl = DungeonGui:FindFirstChild("TotalTimeCountLabel")
+        return lbl and lbl.Text
+    end)
+    if ok and type(text) == "string" and text ~= "" then
+        local h, m, s = text:match("(%d+):(%d+):(%d+)")
+        if h and m and s then
+            return tonumber(h) * 3600 + tonumber(m) * 60 + tonumber(s)
+        end
+        local m2, s2 = text:match("(%d+):(%d+)")
+        if m2 and s2 then
+            return tonumber(m2) * 60 + tonumber(s2)
+        end
+    end
+    return 0
+end
+
+local function forcePlayerReset()
+    pcall(function()
+        local char = LocalPlayer.Character
+        if char then
+            local hum = char:FindFirstChildOfClass("Humanoid")
+            if hum then
+                hum.Health = 0
+            else
+                char:BreakJoints()
+            end
+        end
+    end)
+end
+
+--=====================================================================
+-- FLUENT ACRYLIC ENGINE (DepthOfField + Viewport Projected Glass Mesh)
+--=====================================================================
+local AcrylicEngine = {
+    Cleanups = {},
+    BlurInstances = {},
+    Folder = nil,
+    DOF = nil,
+    Enabled = ACRYLIC.BlurEnabled,
+}
+
+local function map(value, inMin, inMax, outMin, outMax)
+    return (value - inMin) * (outMax - outMin) / (inMax - inMin) + outMin
+end
+
+local function viewportPointToWorld(location, distance)
+    local camera = Workspace.CurrentCamera
+    if not camera then return Vector3.zero end
+    local unitRay = camera:ScreenPointToRay(location.X, location.Y)
+    return unitRay.Origin + unitRay.Direction * distance
+end
+
+local function getOffset()
+    local camera = Workspace.CurrentCamera
+    local viewportSizeY = camera and camera.ViewportSize.Y or 1080
+    return map(viewportSizeY, 0, 2560, 8, 56)
+end
+
+local function createAcrylicPart()
+    local part = Instance.new("Part")
+    part.Name = "AcrylicBody"
+    part.Color = THEME.AcrylicMain
+    part.Material = Enum.Material.Glass
+    part.Size = Vector3.new(1, 1, 0)
+    part.Anchored = true
+    part.CanCollide = false
+    part.Locked = true
+    part.CastShadow = false
+    part.Transparency = 0.98
+
+    local mesh = Instance.new("SpecialMesh")
+    mesh.MeshType = Enum.MeshType.Brick
+    mesh.Offset = Vector3.new(0, 0, -0.000001)
+    mesh.Parent = part
+
+    return part
+end
+
+function AcrylicEngine.Init()
+    local camera = Workspace.CurrentCamera
+    if not camera then return end
+
+    if AcrylicEngine.Folder and AcrylicEngine.Folder.Parent then
+        AcrylicEngine.Folder:Destroy()
+    end
+    
+    local folder = Instance.new("Folder")
+    folder.Name = "ObsidianAcrylicBlur"
+    folder.Parent = camera
+    AcrylicEngine.Folder = folder
+
+    pcall(function()
+        local stale = Lighting:FindFirstChild("ObsidianAcrylicDOF")
+        if stale then stale:Destroy() end
+    end)
+
+    local dof = Instance.new("DepthOfFieldEffect")
+    dof.Name = "ObsidianAcrylicDOF"
+    dof.FarIntensity = 0
+    dof.InFocusRadius = 0.1
+    dof.NearIntensity = 1
+    dof.Enabled = AcrylicEngine.Enabled
+    dof.Parent = Lighting
+    AcrylicEngine.DOF = dof
+
+    local camConn = Workspace:GetPropertyChangedSignal("CurrentCamera"):Connect(function()
+        local newCam = Workspace.CurrentCamera
+        if newCam and AcrylicEngine.Folder then
+            AcrylicEngine.Folder.Parent = newCam
+        end
+    end)
+    table.insert(AcrylicEngine.Cleanups, camConn)
+end
+
+function AcrylicEngine.SetEnabled(enabled)
+    AcrylicEngine.Enabled = enabled
+    if AcrylicEngine.DOF then
+        AcrylicEngine.DOF.Enabled = enabled
+    end
+    for _, blur in ipairs(AcrylicEngine.BlurInstances) do
+        if blur.SetVisibility then
+            blur.SetVisibility(enabled and (blur.Frame and blur.Frame.Visible))
+        end
+    end
+end
+
+function AcrylicEngine.CreateBlur(targetFrame, distance)
+    distance = distance or ACRYLIC.Distance
+    local cleanups = {}
+    local positions = {
+        topLeft = Vector2.zero,
+        topRight = Vector2.zero,
+        bottomRight = Vector2.zero,
+    }
+
+    local model = createAcrylicPart()
+    if AcrylicEngine.Folder then
+        model.Parent = AcrylicEngine.Folder
+    elseif Workspace.CurrentCamera then
+        model.Parent = Workspace.CurrentCamera
+    end
+
+    local function updatePositions(size, position)
+        positions.topLeft = position
+        positions.topRight = position + Vector2.new(size.X, 0)
+        positions.bottomRight = position + size
+    end
+
+    local function render()
+        local camera = Workspace.CurrentCamera
+        if not camera then return end
+        local cframe = camera.CFrame or CFrame.new()
+
+        local topLeft3D = viewportPointToWorld(positions.topLeft, distance)
+        local topRight3D = viewportPointToWorld(positions.topRight, distance)
+        local bottomRight3D = viewportPointToWorld(positions.bottomRight, distance)
+
+        local width = (topRight3D - topLeft3D).Magnitude
+        local height = (topRight3D - bottomRight3D).Magnitude
+
+        model.CFrame = CFrame.fromMatrix((topLeft3D + bottomRight3D) / 2, cframe.XVector, cframe.YVector, cframe.ZVector)
+        local mesh = model:FindFirstChildOfClass("SpecialMesh")
+        if mesh then
+            mesh.Scale = Vector3.new(width, height, 0)
+        end
+    end
+
+    local function onChange()
+        if not (targetFrame and targetFrame.Parent) then return end
+        local offset = getOffset()
+        local size = targetFrame.AbsoluteSize - Vector2.new(offset, offset)
+        local position = targetFrame.AbsolutePosition + Vector2.new(offset / 2, offset / 2)
+
+        updatePositions(size, position)
+        task.spawn(render)
+    end
+
+    local function setupCameraListeners()
+        local camera = Workspace.CurrentCamera
+        if not camera then return end
+
+        table.insert(cleanups, camera:GetPropertyChangedSignal("CFrame"):Connect(render))
+        table.insert(cleanups, camera:GetPropertyChangedSignal("ViewportSize"):Connect(function()
+            onChange()
+            render()
+        end))
+        table.insert(cleanups, camera:GetPropertyChangedSignal("FieldOfView"):Connect(render))
+        task.spawn(render)
+    end
+
+    table.insert(cleanups, targetFrame:GetPropertyChangedSignal("AbsolutePosition"):Connect(onChange))
+    table.insert(cleanups, targetFrame:GetPropertyChangedSignal("AbsoluteSize"):Connect(onChange))
+
+    setupCameraListeners()
+
+    local blurObj = {
+        Frame = targetFrame,
+        Model = model,
+        SetVisibility = function(visible)
+            if model and model.Parent then
+                model.Transparency = (visible and AcrylicEngine.Enabled) and 0.98 or 1
+            end
+        end,
+        Destroy = function()
+            for _, c in ipairs(cleanups) do pcall(function() c:Disconnect() end) end
+            if model and model.Parent then model:Destroy() end
+        end
+    }
+
+    model.Destroying:Connect(function()
+        for _, c in ipairs(cleanups) do pcall(function() c:Disconnect() end) end
+    end)
+
+    targetFrame.Destroying:Connect(function()
+        blurObj.Destroy()
+    end)
+
+    table.insert(AcrylicEngine.BlurInstances, blurObj)
+    onChange()
+
+    return blurObj
+end
+
+function AcrylicEngine.Destroy()
+    for _, c in ipairs(AcrylicEngine.Cleanups) do pcall(function() c:Disconnect() end) end
+    for _, b in ipairs(AcrylicEngine.BlurInstances) do pcall(function() b.Destroy() end) end
+    table.clear(AcrylicEngine.BlurInstances)
+    if AcrylicEngine.DOF then pcall(function() AcrylicEngine.DOF:Destroy() end) end
+    if AcrylicEngine.Folder then pcall(function() AcrylicEngine.Folder:Destroy() end) end
+end
+
+AcrylicEngine.Init()
+
+local function setAcrylicBlur(enabled)
+    AcrylicEngine.SetEnabled(enabled)
+end
+
+----------------------------------------------------------------------
+-- FLUENT ACRYLIC PAINT FACTORY (Multi-layered Violet Glass)
+----------------------------------------------------------------------
+local function createGlassPanel(name, size, position, radius, tint, anchorPoint)
+    radius = radius or 10
+    tint = tint or THEME.GlassTint
+    anchorPoint = anchorPoint or Vector2.zero
+
+    local wrapper = Instance.new("Frame")
+    wrapper.Name = name
+    wrapper.Size = size
+    wrapper.Position = position
+    wrapper.AnchorPoint = anchorPoint
+    wrapper.BackgroundTransparency = 1
+    wrapper.BorderSizePixel = 0
+    wrapper.Active = true
+
+    local shadow = Instance.new("ImageLabel")
+    shadow.Name = "Shadow"
+    shadow.AnchorPoint = Vector2.new(0.5, 0.5)
+    shadow.Position = UDim2.new(0.5, 0, 0.5, 0)
+    shadow.Size = UDim2.new(1, 120, 1, 116)
+    shadow.BackgroundTransparency = 1
+    shadow.Image = "rbxassetid://8992230677"
+    shadow.ImageColor3 = Color3.fromRGB(0, 0, 0)
+    shadow.ImageTransparency = 0.70
+    shadow.ScaleType = Enum.ScaleType.Slice
+    shadow.SliceCenter = Rect.new(99, 99, 99, 99)
+    shadow.ZIndex = 0
+    shadow.Parent = wrapper
+
+    local blurObj = AcrylicEngine.CreateBlur(wrapper)
+
+    local bgFrame = Instance.new("Frame")
+    bgFrame.Name = "AcrylicBackground"
+    bgFrame.Size = UDim2.new(1, 0, 1, 0)
+    bgFrame.BackgroundColor3 = THEME.AcrylicMain
+    bgFrame.BackgroundTransparency = math.clamp(tint, 0.25, 0.65)
+    bgFrame.BorderSizePixel = 0
+    bgFrame.ZIndex = 1
+    Instance.new("UICorner", bgFrame).CornerRadius = UDim.new(0, radius)
+    bgFrame.Parent = wrapper
+
+    local gradFrame = Instance.new("Frame")
+    gradFrame.Name = "AcrylicGradient"
+    gradFrame.Size = UDim2.new(1, 0, 1, 0)
+    gradFrame.BackgroundColor3 = Color3.fromRGB(255, 255, 255)
+    gradFrame.BackgroundTransparency = 0.40
+    gradFrame.BorderSizePixel = 0
+    gradFrame.ZIndex = 1
+    Instance.new("UICorner", gradFrame).CornerRadius = UDim.new(0, radius)
+    
+    local grad = Instance.new("UIGradient")
+    grad.Rotation = 90
+    grad.Color = THEME.AcrylicGradient
+    grad.Parent = gradFrame
+    gradFrame.Parent = wrapper
+
+    local noise1 = Instance.new("ImageLabel")
+    noise1.Name = "AcrylicNoise1"
+    noise1.Size = UDim2.new(1, 0, 1, 0)
+    noise1.BackgroundTransparency = 1
+    noise1.Image = "rbxassetid://9968344105"
+    noise1.ImageTransparency = 0.96
+    noise1.ScaleType = Enum.ScaleType.Tile
+    noise1.TileSize = UDim2.new(0, 128, 0, 128)
+    noise1.ZIndex = 2
+    Instance.new("UICorner", noise1).CornerRadius = UDim.new(0, radius)
+    noise1.Parent = wrapper
+
+    local noise2 = Instance.new("ImageLabel")
+    noise2.Name = "AcrylicNoise2"
+    noise2.Size = UDim2.new(1, 0, 1, 0)
+    noise2.BackgroundTransparency = 1
+    noise2.Image = "rbxassetid://9968344227"
+    noise2.ImageTransparency = THEME.AcrylicNoise
+    noise2.ScaleType = Enum.ScaleType.Tile
+    noise2.TileSize = UDim2.new(0, 128, 0, 128)
+    noise2.ZIndex = 2
+    Instance.new("UICorner", noise2).CornerRadius = UDim.new(0, radius)
+    noise2.Parent = wrapper
+
+    local strokeFrame = Instance.new("Frame")
+    strokeFrame.Name = "AcrylicBorder"
+    strokeFrame.Size = UDim2.new(1, 0, 1, 0)
+    strokeFrame.BackgroundTransparency = 1
+    strokeFrame.BorderSizePixel = 0
+    strokeFrame.ZIndex = 2
+    Instance.new("UICorner", strokeFrame).CornerRadius = UDim.new(0, radius)
+    
+    local stroke = Instance.new("UIStroke")
+    stroke.Color = THEME.AcrylicBorder
+    stroke.Transparency = 0.78
+    stroke.Thickness = 1
+    stroke.Parent = strokeFrame
+    strokeFrame.Parent = wrapper
+
+    local sheen = Instance.new("Frame")
+    sheen.Name = "Sheen"
+    sheen.Size = UDim2.new(1, -18, 0, 1)
+    sheen.Position = UDim2.new(0, 9, 0, math.max(2, math.floor(radius / 3)))
+    sheen.BackgroundColor3 = THEME.EdgeLight
+    sheen.BackgroundTransparency = 0.68
+    sheen.BorderSizePixel = 0
+    sheen.ZIndex = 3
+    sheen.Parent = wrapper
+
+    local glass = Instance.new("Frame")
+    glass.Name = "Glass"
+    glass.Size = UDim2.new(1, 0, 1, 0)
+    glass.BackgroundTransparency = 1
+    glass.BorderSizePixel = 0
+    glass.ZIndex = 3
+    Instance.new("UICorner", glass).CornerRadius = UDim.new(0, radius)
+    glass.Parent = wrapper
+
+    wrapper:GetPropertyChangedSignal("Visible"):Connect(function()
+        if blurObj then blurObj.SetVisibility(wrapper.Visible) end
+    end)
+
+    return wrapper, glass
+end
+
+----------------------------------------------------------------------
+-- INPUT ENGINES
+----------------------------------------------------------------------
+local function makeDraggable(frame, handle)
+    handle = handle or frame
+    local dragging = false
+    local dragInput, dragStart, startPos
+
+    handle.InputBegan:Connect(function(input)
+        if input.UserInputType == Enum.UserInputType.MouseButton1
+            or input.UserInputType == Enum.UserInputType.Touch then
+            dragging = true
+            dragStart = input.Position
+            startPos = frame.Position
+            input.Changed:Connect(function()
+                if input.UserInputState == Enum.UserInputState.End then
+                    dragging = false
+                end
+            end)
+        end
+    end)
+
+    handle.InputChanged:Connect(function(input)
+        if input.UserInputType == Enum.UserInputType.MouseMovement
+            or input.UserInputType == Enum.UserInputType.Touch then
+            dragInput = input
+        end
+    end)
+
+    UserInputService.InputChanged:Connect(function(input)
+        if input == dragInput and dragging then
+            local delta = input.Position - dragStart
+            frame.Position = UDim2.new(
+                startPos.X.Scale, startPos.X.Offset + delta.X,
+                startPos.Y.Scale, startPos.Y.Offset + delta.Y
+            )
+        end
+    end)
+end
+
+local function makeResizableBottomLeft(frame, handle, minSize, maxSize)
+    minSize = minSize or UI_LAYOUT.MinConsoleSize
+    maxSize = maxSize or UI_LAYOUT.MaxConsoleSize
+
+    handle.InputBegan:Connect(function(input)
+        if input.UserInputType == Enum.UserInputType.MouseButton1
+            or input.UserInputType == Enum.UserInputType.Touch then
+            local startInput = input.Position
+            local startPos = frame.Position
+            local startSize = frame.Size
+
+            local moveConn
+            moveConn = UserInputService.InputChanged:Connect(function(move)
+                if move.UserInputType == Enum.UserInputType.MouseMovement
+                    or move.UserInputType == Enum.UserInputType.Touch then
+                    local delta = move.Position - startInput
+                    local newWidth  = math.clamp(startSize.X.Offset - delta.X, minSize.X, maxSize.X)
+                    local newHeight = math.clamp(startSize.Y.Offset + delta.Y, minSize.Y, maxSize.Y)
+
+                    frame.Size = UDim2.new(startSize.X.Scale, newWidth, startSize.Y.Scale, newHeight)
+                    frame.Position = UDim2.new(
+                        startPos.X.Scale, startPos.X.Offset + (startSize.X.Offset - newWidth),
+                        startPos.Y.Scale, startPos.Y.Offset
+                    )
+                end
+            end)
+
+            input.Changed:Connect(function()
+                if input.UserInputState == Enum.UserInputState.End and moveConn then
+                    moveConn:Disconnect()
+                    moveConn = nil
+                end
+            end)
+        end
+    end)
+end
+
+----------------------------------------------------------------------
+-- ROOT SCREENGUI
+----------------------------------------------------------------------
+local GUI_NAME = "AutoCombat_Obsidian"
+
+local ScreenGui = Instance.new("ScreenGui")
+ScreenGui.Name = GUI_NAME
+ScreenGui.ResetOnSpawn = false
+ScreenGui.DisplayOrder = 999
+ScreenGui.IgnoreGuiInset = false
+ScreenGui.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
+
+do
+    local roots = {}
+    if gethui then pcall(function() table.insert(roots, gethui()) end) end
+    table.insert(roots, CoreGui)
+    table.insert(roots, LocalPlayer:FindFirstChildOfClass("PlayerGui"))
+
+    for _, root in ipairs(roots) do
+        if root then
+            local old = root:FindFirstChild(GUI_NAME)
+            if old then pcall(function() old:Destroy() end) end
+            if pcall(function() ScreenGui.Parent = root end) then break end
+        end
+    end
+end
+
+ScreenGui.Destroying:Connect(function()
+    AcrylicEngine.Destroy()
+end)
+
+----------------------------------------------------------------------
+-- STATUS DOT / ICON TINT SYSTEM
+----------------------------------------------------------------------
+local pulseTweens = setmetatable({}, { __mode = "k" })
+
+local function setDotState(indicator, color, pulse)
+    local existing = pulseTweens[indicator]
+    if existing then existing:Cancel() pulseTweens[indicator] = nil end
+
+    if indicator:IsA("ImageLabel") then
+        indicator.ImageColor3 = color
+        indicator.ImageTransparency = 0
+        if pulse then
+            local tween = TweenService:Create(indicator,
+                TweenInfo.new(1.35, Enum.EasingStyle.Sine, Enum.EasingDirection.InOut, -1, true),
+                { ImageTransparency = 0.45 })
+            tween:Play()
+            pulseTweens[indicator] = tween
+        end
+    else
+        indicator.BackgroundColor3 = color
+        local halo = indicator:FindFirstChild("Halo")
+        if halo then halo.Color = color end
+        indicator.BackgroundTransparency = 0
+        if pulse then
+            local tween = TweenService:Create(indicator,
+                TweenInfo.new(1.35, Enum.EasingStyle.Sine, Enum.EasingDirection.InOut, -1, true),
+                { BackgroundTransparency = 0.4 })
+            tween:Play()
+            pulseTweens[indicator] = tween
+        end
+    end
+end
+
+----------------------------------------------------------------------
+-- TOOLBAR (ceiling-centered & isolated layout)
+----------------------------------------------------------------------
+local ToolBar, ToolBarGlass = createGlassPanel(
+    "ToolBar", UI_LAYOUT.ToolbarSize, UI_LAYOUT.ToolbarPosition, 10, THEME.GlassTint + 0.08, UI_LAYOUT.ToolbarAnchorPoint)
+ToolBar.Parent = ScreenGui
+
+local ToolBarContent = Instance.new("Frame")
+ToolBarContent.Name = "Content"
+ToolBarContent.Size = UDim2.new(1, 0, 1, 0)
+ToolBarContent.BackgroundTransparency = 1
+ToolBarContent.BorderSizePixel = 0
+ToolBarContent.ZIndex = 4
+ToolBarContent.Parent = ToolBarGlass
+
+local TB_Pad = Instance.new("UIPadding")
+TB_Pad.PaddingLeft = UDim.new(0, 8)
+TB_Pad.PaddingRight = UDim.new(0, 8)
+TB_Pad.Parent = ToolBarContent
+
+local TB_Layout = Instance.new("UIListLayout")
+TB_Layout.FillDirection = Enum.FillDirection.Horizontal
+TB_Layout.HorizontalAlignment = Enum.HorizontalAlignment.Center
+TB_Layout.VerticalAlignment = Enum.VerticalAlignment.Center
+TB_Layout.Padding = UDim.new(0, 6)
+TB_Layout.SortOrder = Enum.SortOrder.LayoutOrder
+TB_Layout.Parent = ToolBarContent
+
+local Grip = Instance.new("ImageLabel")
+Grip.Name = "DragGrip"
+Grip.Size = UDim2.new(0, 16, 0, 16)
+Grip.BackgroundTransparency = 1
+SetIcon(Grip, "grip-vertical")
+Grip.ImageColor3 = THEME.SubMuted
+Grip.ImageTransparency = 0.3
+Grip.Active = true
+Grip.LayoutOrder = 0
+Grip.Parent = ToolBarContent
+
+local function createPillButton(text, defaultColor, width, order, iconName)
+    local btn = Instance.new("TextButton")
+    btn.Name = text
+    btn.Size = UDim2.new(0, width, 1, -10)
+    btn.BackgroundColor3 = THEME.GlassAlt
+    btn.BackgroundTransparency = 0.20
+    btn.Text = ""
+    btn.AutoButtonColor = false
+    btn.BorderSizePixel = 0
+    btn.LayoutOrder = order
+    btn.ZIndex = 4
+    Instance.new("UICorner", btn).CornerRadius = UDim.new(0, 8)
+    btn.Parent = ToolBarContent
+
+    local stroke = Instance.new("UIStroke")
+    stroke.Color = THEME.EdgeLight
+    stroke.Transparency = 0.80
+    stroke.Thickness = 1
+    stroke.Parent = btn
+
+    local iconImg = Instance.new("ImageLabel")
+    iconImg.Name = "StatusIcon"
+    iconImg.Size = UDim2.new(0, 14, 0, 14)
+    iconImg.Position = UDim2.new(0, 10, 0.5, -7)
+    iconImg.BackgroundTransparency = 1
+    SetIcon(iconImg, iconName or "circle")
+    iconImg.ImageColor3 = defaultColor
+    iconImg.Parent = btn
+
+    local lbl = Instance.new("TextLabel")
+    lbl.Name = "BtnText"
+    lbl.Size = UDim2.new(1, -30, 1, 0)
+    lbl.Position = UDim2.new(0, 28, 0, 0)
+    lbl.BackgroundTransparency = 1
+    lbl.Text = text
+    lbl.TextColor3 = THEME.Text
+    lbl.Font = Enum.Font.GothamBold
+    lbl.TextSize = 11
+    lbl.TextXAlignment = Enum.TextXAlignment.Center
+    lbl.Parent = btn
+
+    btn.MouseEnter:Connect(function()
+        stroke.Color = THEME.Accent
+        stroke.Transparency = 0.25
+        TweenService:Create(btn, TweenInfo.new(0.15), { BackgroundTransparency = 0 }):Play()
+        TweenService:Create(iconImg, TweenInfo.new(0.15), { ImageTransparency = 0 }):Play()
+    end)
+    btn.MouseLeave:Connect(function()
+        stroke.Color = THEME.EdgeLight
+        stroke.Transparency = 0.80
+        TweenService:Create(btn, TweenInfo.new(0.15), { BackgroundTransparency = 0.20 }):Play()
+    end)
+
+    return btn, iconImg, lbl
+end
+
+local ModeBtn, ModeDot, ModeLbl = createPillButton("Combat: OFF", THEME.Bad, 130, 1, "sword")
+local NodeBtn, NodeDot, NodeLbl = createPillButton("Auto-Node: ON", THEME.Good, 140, 2, "map-pin")
+local ConsoleToggleBtn, ConsoleDot, ConsoleLbl = createPillButton("Console", THEME.Accent, 95, 3, "terminal")
+
+makeDraggable(ToolBar, Grip)
+
+----------------------------------------------------------------------
+-- CONSOLE WINDOW
+----------------------------------------------------------------------
+local ConsoleFrame, ConsoleGlass = createGlassPanel(
+    "ConsoleWindow", UI_LAYOUT.ConsoleSize, UI_LAYOUT.ConsolePosition, 10, THEME.GlassTint)
+ConsoleFrame.Visible = UI_LAYOUT.ConsoleVisibleOnStart
+ConsoleFrame.Parent = ScreenGui
+
+local Header = Instance.new("Frame")
+Header.Name = "Header"
+Header.Size = UDim2.new(1, 0, 0, 34)
+Header.BackgroundTransparency = 1
+Header.ZIndex = 4
+Header.Parent = ConsoleGlass
+
+local Title = Instance.new("TextLabel")
+Title.Name = "Title"
+Title.Size = UDim2.new(0, 180, 1, 0)
+Title.Position = UDim2.new(0, 12, 0, 0)
+Title.BackgroundTransparency = 1
+Title.Text = "OBSIDIAN // CONSOLE"
+Title.TextColor3 = THEME.Text
+Title.Font = Enum.Font.GothamBold
+Title.TextSize = 11
+Title.TextXAlignment = Enum.TextXAlignment.Left
+Title.ZIndex = 4
+Title.Parent = Header
+
+local CounterBadge = Instance.new("TextLabel")
+CounterBadge.Name = "CounterBadge"
+CounterBadge.Size = UDim2.new(0, 48, 0, 17)
+CounterBadge.Position = UDim2.new(1, -132, 0.5, -8)
+CounterBadge.AnchorPoint = Vector2.new(0, 0)
+CounterBadge.BackgroundColor3 = THEME.EdgeLight
+CounterBadge.BackgroundTransparency = 0.90
+CounterBadge.Text = string.format("0/%d", MAX_LOG_LINES)
+CounterBadge.TextColor3 = THEME.SubMuted
+CounterBadge.Font = Enum.Font.GothamMedium
+CounterBadge.TextSize = 9
+CounterBadge.BorderSizePixel = 0
+CounterBadge.ZIndex = 4
+CounterBadge.Parent = Header
+Instance.new("UICorner", CounterBadge).CornerRadius = UDim.new(0, 4)
+
+local function styleGhostButton(btn)
+    btn.BackgroundColor3 = THEME.EdgeLight
+    btn.BackgroundTransparency = 1
+    btn.BorderSizePixel = 0
+    btn.ZIndex = 4
+    btn.AutoButtonColor = false
+    Instance.new("UICorner", btn).CornerRadius = UDim.new(0, 5)
+    btn.MouseEnter:Connect(function()
+        TweenService:Create(btn, TweenInfo.new(0.12), { BackgroundTransparency = 0.84 }):Play()
+    end)
+    btn.MouseLeave:Connect(function()
+        TweenService:Create(btn, TweenInfo.new(0.12), { BackgroundTransparency = 1 }):Play()
+    end)
+    return btn
+end
+
+local ClearBtn = styleGhostButton(Instance.new("TextButton"))
+ClearBtn.Name = "ClearBtn"
+ClearBtn.Size = UDim2.new(0, 44, 0, 21)
+ClearBtn.Position = UDim2.new(1, -78, 0.5, -10)
+ClearBtn.Text = "Clear"
+ClearBtn.TextColor3 = THEME.Muted
+ClearBtn.Font = Enum.Font.GothamMedium
+ClearBtn.TextSize = 10
+ClearBtn.Parent = Header
+
+local CloseBtn = styleGhostButton(Instance.new("TextButton"))
+CloseBtn.Name = "CloseBtn"
+CloseBtn.Size = UDim2.new(0, 22, 0, 21)
+CloseBtn.Position = UDim2.new(1, -28, 0.5, -10)
+CloseBtn.Text = "X"
+CloseBtn.TextColor3 = Color3.fromRGB(235, 110, 110)
+CloseBtn.Font = Enum.Font.GothamBold
+CloseBtn.TextSize = 10
+CloseBtn.Parent = Header
+
+local HeaderDivider = Instance.new("Frame")
+HeaderDivider.Name = "HeaderDivider"
+HeaderDivider.Size = UDim2.new(1, -24, 0, 1)
+HeaderDivider.Position = UDim2.new(0, 12, 0, 34)
+HeaderDivider.BackgroundColor3 = THEME.EdgeLight
+HeaderDivider.BackgroundTransparency = 0.90
+HeaderDivider.BorderSizePixel = 0
+HeaderDivider.ZIndex = 4
+HeaderDivider.Parent = ConsoleGlass
+
+local LogContainer = Instance.new("Frame")
+LogContainer.Name = "LogWell"
+LogContainer.Size = UDim2.new(1, -16, 1, -56)
+LogContainer.Position = UDim2.new(0, 8, 0, 40)
+LogContainer.BackgroundColor3 = THEME.GlassDeep
+LogContainer.BackgroundTransparency = THEME.WellTint
+LogContainer.BorderSizePixel = 0
+LogContainer.ZIndex = 4
+LogContainer.ClipsDescendants = true
+LogContainer.Parent = ConsoleGlass
+Instance.new("UICorner", LogContainer).CornerRadius = UDim.new(0, 8)
+
+local LC_Stroke = Instance.new("UIStroke")
+LC_Stroke.Color = THEME.EdgeLight
+LC_Stroke.Transparency = 0.90
+LC_Stroke.Thickness = 1
+LC_Stroke.Parent = LogContainer
+
+local LogScroll = Instance.new("ScrollingFrame")
+LogScroll.Name = "LogScroll"
+LogScroll.Size = UDim2.new(1, -8, 1, -8)
+LogScroll.Position = UDim2.new(0, 4, 0, 4)
+LogScroll.BackgroundTransparency = 1
+LogScroll.BorderSizePixel = 0
+LogScroll.ScrollBarThickness = 3
+LogScroll.ScrollBarImageColor3 = THEME.Accent
+LogScroll.ScrollBarImageTransparency = 0.25
+LogScroll.ScrollingDirection = Enum.ScrollingDirection.Y
+LogScroll.AutomaticCanvasSize = Enum.AutomaticSize.Y
+LogScroll.CanvasSize = UDim2.new(0, 0, 0, 0)
+LogScroll.ZIndex = 4
+LogScroll.Parent = LogContainer
+
+local LogLayout = Instance.new("UIListLayout")
+LogLayout.SortOrder = Enum.SortOrder.LayoutOrder
+LogLayout.Padding = UDim.new(0, 2)
+LogLayout.Parent = LogScroll
+
+local LogPadding = Instance.new("UIPadding")
+LogPadding.PaddingLeft = UDim.new(0, 6)
+LogPadding.PaddingRight = UDim.new(0, 6)
+LogPadding.PaddingTop = UDim.new(0, 4)
+LogPadding.PaddingBottom = UDim.new(0, 4)
+LogPadding.Parent = LogScroll
+
+local ResizeBar = Instance.new("Frame")
+ResizeBar.Name = "ResizeGripBottomLeft"
+ResizeBar.Size = UDim2.new(0, 36, 0, 6)
+ResizeBar.Position = UDim2.new(0, 10, 1, -13)
+ResizeBar.BackgroundColor3 = THEME.SubMuted
+ResizeBar.BackgroundTransparency = 0.25
+ResizeBar.BorderSizePixel = 0
+ResizeBar.Active = true
+ResizeBar.ZIndex = 5
+ResizeBar.Parent = ConsoleGlass
+Instance.new("UICorner", ResizeBar).CornerRadius = UDim.new(1, 0)
+
+local RB_Stroke = Instance.new("UIStroke")
+RB_Stroke.Color = THEME.EdgeLight
+RB_Stroke.Transparency = 0.85
+RB_Stroke.Thickness = 1
+RB_Stroke.Parent = ResizeBar
+
+ResizeBar.MouseEnter:Connect(function()
+    RB_Stroke.Color = THEME.Accent
+    RB_Stroke.Transparency = 0.2
+    TweenService:Create(ResizeBar, TweenInfo.new(0.15),
+        { BackgroundColor3 = THEME.Accent, Size = UDim2.new(0, 48, 0, 6) }):Play()
+end)
+ResizeBar.MouseLeave:Connect(function()
+    RB_Stroke.Color = THEME.EdgeLight
+    RB_Stroke.Transparency = 0.85
+    TweenService:Create(ResizeBar, TweenInfo.new(0.15),
+        { BackgroundColor3 = THEME.SubMuted, Size = UDim2.new(0, 36, 0, 6) }):Play()
+end)
+
+makeDraggable(ConsoleFrame, Header)
+makeResizableBottomLeft(ConsoleFrame, ResizeBar, UI_LAYOUT.MinConsoleSize, UI_LAYOUT.MaxConsoleSize)
+
+----------------------------------------------------------------------
+-- REAL-TIME LOG MANAGER & EXACT COUNTER BADGE SYNC
+----------------------------------------------------------------------
+local logIndex = 0
+
+local function sanitizeRichText(value)
+    return (tostring(value):gsub("[<>&]", {
+        ["<"] = "&lt;", [">"] = "&gt;", ["&"] = "&amp;",
+    }))
+end
+
+local function getActiveLogCount(): number
+    local count = 0
+    for _, child in ipairs(LogScroll:GetChildren()) do
+        if child:IsA("TextLabel") then
+            count += 1
+        end
+    end
+    return count
+end
+
+local function updateCounterBadge()
+    local count = getActiveLogCount()
+    CounterBadge.Text = string.format("%d/%d", count, MAX_LOG_LINES)
+    CounterBadge.TextColor3 = (count >= MAX_LOG_LINES) and THEME.AccentSoft or THEME.SubMuted
+end
+
+LogScroll.ChildAdded:Connect(function(child)
+    if child:IsA("TextLabel") then
+        updateCounterBadge()
+    end
+end)
+
+LogScroll.ChildRemoved:Connect(function(child)
+    if child:IsA("TextLabel") then
+        task.defer(updateCounterBadge)
+    end
+end)
+
+local function pruneLogs(limit)
+    local labels = {}
+    for _, child in ipairs(LogScroll:GetChildren()) do
+        if child:IsA("TextLabel") then
+            table.insert(labels, child)
+        end
+    end
+
+    table.sort(labels, function(a, b)
+        return (a.LayoutOrder or 0) < (b.LayoutOrder or 0)
+    end)
+
+    while #labels > limit do
+        local oldest = table.remove(labels, 1)
+        if oldest then
+            pcall(function() oldest:Destroy() end)
+        end
+    end
+end
+
+local function Log(tag, text, colorHex)
+    LastLogAt = os.clock()
+    local ok, err = pcall(function()
+        logIndex += 1
+        colorHex = colorHex or "#E6E6F0"
+
+        local tagOut  = sanitizeRichText(tag)
+        local textOut = RICH_TEXT_PASSTHROUGH and tostring(text) or sanitizeRichText(text)
+        local timeStamp = getRunTime()
+
+        local nearBottom = (LogScroll.AbsoluteCanvasSize.Y
+            - LogScroll.CanvasPosition.Y
+            - LogScroll.AbsoluteWindowSize.Y) <= 48
+
+        local entry = Instance.new("TextLabel")
+        entry.Name = string.format("LogEntry_%d", logIndex)
+        entry.Size = UDim2.new(1, 0, 0, 0)
+        entry.AutomaticSize = Enum.AutomaticSize.Y
+        entry.BackgroundTransparency = 1
+        entry.RichText = true
+        entry.Font = UI_LAYOUT.LogFont
+        entry.TextSize = UI_LAYOUT.LogTextSize
+        entry.TextColor3 = THEME.Text
+        entry.TextXAlignment = Enum.TextXAlignment.Left
+        entry.TextWrapped = true
+        entry.LayoutOrder = logIndex
+        entry.ZIndex = 4
+        entry.Text = string.format(
+            "<font color='#584E6D'>[%s]</font> <font color='%s'><b>[%s]</b> %s</font>",
+            timeStamp, colorHex, tagOut, textOut)
+        entry.Parent = LogScroll
+
+        pruneLogs(MAX_LOG_LINES)
+
+        if nearBottom then
+            task.defer(function()
+                if entry.Parent then
+                    LogScroll.CanvasPosition = Vector2.new(0, LogScroll.AbsoluteCanvasSize.Y)
+                end
+            end)
+        end
+
+        entry.TextTransparency = 0.45
+        TweenService:Create(entry,
+            TweenInfo.new(0.18, Enum.EasingStyle.Quad, Enum.EasingDirection.Out),
+            { TextTransparency = 0 }):Play()
+    end)
+    if not ok then
+        warn("[Obsidian Console] log error:", err)
+    end
+end
+
+ClearBtn.MouseButton1Click:Connect(function()
+    for _, child in ipairs(LogScroll:GetChildren()) do
+        if child:IsA("TextLabel") then
+            pcall(function() child:Destroy() end)
+        end
+    end
+    task.defer(function()
+        updateCounterBadge()
+        Log("SYSTEM", "Console cleared.", "#8A5CFF")
+    end)
+end)
+
+----------------------------------------------------------------------
+-- VISIBILITY & MODE STATE
+----------------------------------------------------------------------
+local function setConsoleVisibility(visible)
+    ConsoleFrame.Visible = visible
+    setDotState(ConsoleDot, visible and THEME.Accent or THEME.SubMuted, visible)
+    ConsoleLbl.TextColor3 = visible and THEME.Text or THEME.Muted
+    setAcrylicBlur(visible or ToolBar.Visible)
+end
+
+CloseBtn.MouseButton1Click:Connect(function() setConsoleVisibility(false) end)
+ConsoleToggleBtn.MouseButton1Click:Connect(function()
+    setConsoleVisibility(not ConsoleFrame.Visible)
+end)
+
+local function updateCombatButton()
+    if CombatMode == 1 then
+        setDotState(ModeDot, THEME.Good, true)
+        ModeLbl.Text = "Combat: SAFE"
+    elseif CombatMode == 2 then
+        setDotState(ModeDot, THEME.Warn, true)
+        ModeLbl.Text = "Combat: AGGRO"
+    else
+        setDotState(ModeDot, THEME.Bad, false)
+        ModeLbl.Text = "Combat: OFF"
+    end
+end
+
+ModeBtn.MouseButton1Click:Connect(function()
+    if not IsBotRunning then
+        IsBotRunning = true
+        CombatMode = 1
+        updateCombatButton()
+        Log("MODE", "SAFE MODE active (Clash evaluation & threat defense active).", "#2ECC71")
+    elseif CombatMode == 1 then
+        CombatMode = 2
+        updateCombatButton()
+        Log("MODE", "AGGRESSIVE active (Focus Fire & Maximum Damage).", "#F19A26")
+    else
+        IsBotRunning = false
+        CombatMode = 0
+        updateCombatButton()
+        Log("MODE", "Auto-combat paused.", "#EB4D4B")
+    end
+end)
+
+local function updateNodeButton()
+    setDotState(NodeDot, IsAutoNodeRunning and THEME.Good or THEME.SubMuted, IsAutoNodeRunning)
+    NodeLbl.Text = IsAutoNodeRunning and "Auto-Node: ON" or "Auto-Node: OFF"
+end
+
+NodeBtn.MouseButton1Click:Connect(function()
+    IsAutoNodeRunning = not IsAutoNodeRunning
+    updateNodeButton()
+    Log("MAP", "Auto-Node Embark " .. (IsAutoNodeRunning and "ENABLED." or "DISABLED."),
+        IsAutoNodeRunning and "#2ECC71" or "#EB4D4B")
+end)
+
+updateCombatButton()
+updateNodeButton()
+updateCounterBadge()
+setConsoleVisibility(UI_LAYOUT.ConsoleVisibleOnStart)
+
+Log("INIT", "Auto-Combat v6.4 loaded [Smart EGO PCT & Flat Threat Gates].", "#8A5CFF")
+
+----------------------------------------------------------------------
+-- SAFE VALUE & STATUS HELPERS
+----------------------------------------------------------------------
+local function toNumber(v)
+    if type(v) == "number" then return v end
+    if type(v) == "string" then return tonumber(v) end
+    return nil
+end
+
+local function isPlayerDead()
+    if not STOP_ON_DEATH then return false end
+    
+    local char = LocalPlayer.Character
+    if not (char and char.Parent) then return true end
+
+    local hum = char:FindFirstChildOfClass("Humanoid")
+    if hum and hum.Health <= 0 then return true end
+
+    local pHealth = toNumber(PlayerStats.Health)
+    if pHealth and pHealth <= 0 then return true end
+
+    return false
+end
+
+local function ableToPlay(): boolean
+    if LocalPlayer:GetAttribute("ignore") then return true end
+    if LocalPlayer:GetAttribute("IsInTutorial") then return false end
+    if not LocalPlayer:GetAttribute("IsYourTurn") then return false end
+    if LocalPlayer:GetAttribute("Active") then return false end
+    return true
+end
+
+local INTENT_DEF_WORDS = { evade = true, guard = true, defend = true, dodge = true }
+local CARD_DEF_WORDS = { evade = true, dodge = true, guard = true, defend = true, shield = true, rewind = true, counter = true }
+
+----------------------------------------------------------------------
+-- DAMAGE TYPES & RESISTANCE MULTIPLIERS
+----------------------------------------------------------------------
+local DAMAGE_TYPES = { "Slash", "Stab", "Strike" }
+local DAMAGE_TYPE_ALIAS = { Slash = "Slash", Stab = "Stab", Strike = "Strike", Pierce = "Stab", Blunt = "Strike" }
+local GRADES = { "Fatal", "Weak", "Normal", "Endured", "Ineffective" }
+local RESIST_WORDS = {}
+for _, g in ipairs(GRADES) do RESIST_WORDS[g] = true end
+
+local ResistTable = { Fatal = 2, Weak = 1.5, Normal = 1, Endured = 0.5, Ineffective = 0.25 }
+do
+    local ok, mod = pcall(function()
+        return require(ReplicatedStorage.ClientModules:WaitForChild("Resistances", 3))
+    end)
+    if ok and type(mod) == "table" then
+        local valid = true
+        for _, g in ipairs(GRADES) do
+            local v = toNumber(mod[g])
+            if v == nil or v <= 0 then valid = false break end
+        end
+        if valid then
+            ResistTable = {}
+            for _, g in ipairs(GRADES) do ResistTable[g] = toNumber(mod[g]) end
+        end
+    end
+end
+
+local function normalizeGrade(v)
+    if type(v) == "string" then
+        local g = v:gsub("%s+", "")
+        if RESIST_WORDS[g] then return g end
+    end
+    return nil
+end
+
+----------------------------------------------------------------------
+-- CARD / INTENT PARSER
+----------------------------------------------------------------------
+local function parseIntent(intent)
+    if type(intent) ~= "table" then return nil end
+
+    local bonus = toNumber(intent["Intent Bonus"])
+    local damageType, role, defKind = nil, nil, nil
+
+    local function classify(value)
+        if type(value) ~= "string" then return end
+        if value == "Attack" then if role == nil then role = "Attack" end return end
+        if value == "Defend" then if role == nil then role = "Defend" end return end
+        local alias = DAMAGE_TYPE_ALIAS[value]
+        if alias then
+            if damageType == nil then damageType = alias end
+            return
+        end
+        local lv = value:lower()
+        if INTENT_DEF_WORDS[lv] and defKind == nil then
+            defKind = (lv == "evade" or lv == "dodge") and "Evade" or "Guard"
+        end
+    end
+
+    classify(intent["Intent Type"])
+    classify(intent["Intent Damage"])
+
+    for _, v in pairs(intent) do
+        if type(v) == "string" then
+            classify(v)
+        elseif type(v) == "number" and bonus == nil then
+            bonus = v
+        end
+    end
+
+    bonus = bonus or 0
+    local isDefensive = (defKind ~= nil) or (role == "Defend")
+    local isOffensive = (not isDefensive) and (role == "Attack" or damageType ~= nil)
+
+    return {
+        Bonus = bonus,
+        DamageType = damageType,
+        Role = role,
+        Kind = defKind,
+        IsDefensive = isDefensive,
+        IsOffensive = isOffensive,
+    }
+end
+
+local function parseCardData(rawCard, fallbackId)
+    if type(rawCard) ~= "table" then return nil end
+
+    local id = fallbackId or rawCard.AttackId or rawCard[3]
+    local name = rawCard.Name or rawCard[7] or rawCard[6] or rawCard.DisplayName or rawCard[2] or "Action"
+
+    local intentList = rawCard["Intent List"] or rawCard.IntentList
+    if type(intentList) ~= "table" then
+        if type(rawCard[5]) == "table" then
+            intentList = rawCard[5]
+        elseif type(rawCard[4]) == "table" then
+            intentList = rawCard[4]
+        end
+    end
+
+    local basePower = toNumber(rawCard["Base Power"]) or toNumber(rawCard.BasePower)
+    if basePower == nil then
+        basePower = toNumber(rawCard[4]) or toNumber(rawCard[3]) or 0
+    end
+
+    local cost = toNumber(rawCard.Cost) or toNumber(rawCard[9]) or toNumber(rawCard[8]) or 0
+    local rarity = toNumber(rawCard.Rarity) or toNumber(rawCard[8]) or toNumber(rawCard[7]) or 1
+    local attackWeight = toNumber(rawCard["Attack Weight"]) or toNumber(rawCard.AttackWeight) or 1
+
+    local coins, bonusSum, isDefense, defenseKind, intentCount = {}, 0, false, nil, 0
+    if type(intentList) == "table" then
+        for _, intent in ipairs(intentList) do
+            local info = parseIntent(intent)
+            if info then
+                intentCount = intentCount + 1
+                bonusSum = bonusSum + info.Bonus
+                if info.IsDefensive then
+                    isDefense = true
+                    if defenseKind == nil then defenseKind = info.Kind end
+                end
+                table.insert(coins, info)
+            end
+        end
+    end
+
+    local lowerName = tostring(name):lower()
+    for word in pairs(CARD_DEF_WORDS) do
+        if lowerName:find(word, 1, true) then
+            isDefense = true
+            break
+        end
+    end
+
+    local offensiveCoins = 0
+    for _, c in ipairs(coins) do
+        if c.IsOffensive then offensiveCoins = offensiveCoins + 1 end
+    end
+    if #coins == 0 and not isDefense then offensiveCoins = 1 end
+
+    return {
+        AttackId = tostring(id),
+        Name = tostring(name),
+        BasePower = basePower,
+        MaxPower = basePower + bonusSum,
+        BonusSum = bonusSum,
+        Cost = cost,
+        Rarity = rarity,
+        IntentCount = intentCount,
+        IsDefenseOrEvade = isDefense,
+        DefenseKind = defenseKind,
+        Coins = coins,
+        OffensiveCoinCount = offensiveCoins,
+        AttackWeight = attackWeight,
+        RawData = rawCard,
+        Button = nil,
+        Source = nil,
+    }
+end
+
+----------------------------------------------------------------------
+-- RESISTANCE READERS
+----------------------------------------------------------------------
+local function getPlayerResistancesDirect()
+    local res = {
+        Slash = normalizeGrade(PlayerStats.SlashPhysicalResist),
+        Stab = normalizeGrade(PlayerStats.StabPhysicalResist),
+        Strike = normalizeGrade(PlayerStats.StrikePhysicalResist),
+    }
+
+    if not (res.Slash and res.Stab and res.Strike) then
+        local function fromLabel(labelName, key)
+            if res[key] then return end
+            local ok, txt = pcall(function()
+                local list = CombatGui:FindFirstChild("AllyDataList")
+                local cont = list and list:FindFirstChild("ResistancesContainer")
+                local lbl = cont and cont:FindFirstChild(labelName)
+                return lbl and lbl.Text
+            end)
+            if ok and type(txt) == "string" then
+                res[key] = normalizeGrade(txt:match("^(%a+)"))
+            end
+        end
+        fromLabel("SlashDefense", "Slash")
+        fromLabel("StabDefense", "Stab")
+        fromLabel("StrikeDefense", "Strike")
+    end
+
+    for _, t in ipairs(DAMAGE_TYPES) do
+        if not res[t] then res[t] = "Normal" end
+    end
+    return res
+end
+
+local resCache = { At = 0, Res = nil }
+local function getPlayerResistances()
+    if resCache.Res and (os.clock() - resCache.At) < RESIST_CACHE_TIME then return resCache.Res end
+    local ok, r = pcall(getPlayerResistancesDirect)
+    resCache.Res = (ok and r) or { Slash = "Normal", Stab = "Normal", Strike = "Normal" }
+    resCache.At = os.clock()
+    return resCache.Res
+end
+
+local function getUnitResistances(unitData)
+    local res = {
+        Slash = normalizeGrade(unitData and unitData.SlashPhysicalResist),
+        Stab = normalizeGrade(unitData and unitData.StabPhysicalResist),
+        Strike = normalizeGrade(unitData and unitData.StrikePhysicalResist),
+    }
+    for _, t in ipairs(DAMAGE_TYPES) do
+        if not res[t] then res[t] = "Normal" end
+    end
+    return res
+end
+
+----------------------------------------------------------------------
+-- THREAT MATH & INCOMING DAMAGE CALCULATOR
+----------------------------------------------------------------------
+local function getEnemyFirstCard(unitData)
+    if type(unitData) ~= "table" or type(unitData.Hand) ~= "table" then return nil end
+    return unitData.Hand[1] or select(2, next(unitData.Hand))
+end
+
+local function calculateEnemyIncomingDamage(targetEnemy): number
+    if not targetEnemy or not targetEnemy.UnitData then return 0 end
+    local firstCard = getEnemyFirstCard(targetEnemy.UnitData)
+    if not firstCard then return 0 end
+
+    local card = parseCardData(firstCard)
+    if not card then return 0 end
+
+    local playerRes = getPlayerResistances()
+    local totalDamage = 0
+
+    for _, coin in ipairs(card.Coins) do
+        if coin.IsOffensive then
+            local coinPower = card.BasePower + coin.Bonus
+            local mult = 1.0
+            if coin.DamageType and playerRes[coin.DamageType] then
+                mult = ResistTable[playerRes[coin.DamageType]] or 1.0
+            end
+            totalDamage = totalDamage + (coinPower * mult)
+        end
+    end
+
+    if totalDamage <= 0 and card.MaxPower > 0 then
+        totalDamage = card.MaxPower
+    end
+
+    return totalDamage
+end
+
+local function estimateEnemyThreat(unitData)
+    local res = getPlayerResistances()
+    local score, offensiveCards, scanned, topCard = 0, 0, 0, 0
+    local profile = {}
+
+    local hand = unitData and unitData.Hand
+    if type(hand) ~= "table" then return 0, 0, 0, 0, profile end
+
+    for _, rawCard in ipairs(hand) do
+        local card = parseCardData(rawCard)
+        if card then
+            scanned = scanned + 1
+            if card.OffensiveCoinCount > 0 then
+                offensiveCards = offensiveCards + 1
+                local cardScore = 0
+                for _, coin in ipairs(card.Coins) do
+                    if coin.IsOffensive then
+                        local power = card.BasePower + coin.Bonus
+                        if coin.DamageType then
+                            power = power * (ResistTable[res[coin.DamageType]] or 1)
+                            profile[coin.DamageType] = true
+                        end
+                        cardScore = cardScore + power
+                    end
+                end
+                score = score + cardScore
+                if cardScore > topCard then topCard = cardScore end
+            end
+        end
+    end
+
+    return score, offensiveCards, scanned, topCard, profile
+end
+
+local function profileToString(profile)
+    local out = {}
+    for _, t in ipairs(DAMAGE_TYPES) do
+        if profile[t] then table.insert(out, t) end
+    end
+    if #out == 0 then return "?" end
+    return table.concat(out, "/")
+end
+
+local function expectedDamage(card, enemyRes)
+    local total = 0
+    for _, coin in ipairs(card.Coins) do
+        if coin.IsOffensive then
+            local power = card.BasePower + coin.Bonus
+            if coin.DamageType then
+                power = power * (ResistTable[enemyRes[coin.DamageType]] or 1)
+            end
+            total = total + power
+        end
+    end
+    if total <= 0 then total = card.MaxPower end
+    return total
+end
+
+----------------------------------------------------------------------
+-- PLAYER & ENEMY STATE HELPERS
+----------------------------------------------------------------------
+local function isEnemyCardDefensiveOrEvasive(unitData)
+    local first = getEnemyFirstCard(unitData)
+    if not first then return false end
+    local parsed = parseCardData(first)
+    return parsed ~= nil and parsed.IsDefenseOrEvade or false
+end
+
+local function isEnemyStaggered(unitData, model)
+    local targetModel = model or (unitData and unitData.Model)
+    
+    if targetModel then
+        local hrp = targetModel:FindFirstChild("HumanoidRootPart") or targetModel.PrimaryPart
+        local staggerFrames = CombatGui:FindFirstChild("StaggerFrames")
+        
+        if staggerFrames then
+            local staggerTemplate = staggerFrames:FindFirstChild("StaggerTemplate")
+            if staggerTemplate and staggerTemplate:IsA("BillboardGui") and staggerTemplate.Enabled then
+                if (hrp and staggerTemplate.Adornee == hrp)
+                    or (staggerTemplate.Adornee and (staggerTemplate.Adornee == targetModel or staggerTemplate.Adornee:IsDescendantOf(targetModel))) then
+                    return true
+                end
+            end
+
+            for _, frame in ipairs(staggerFrames:GetChildren()) do
+                if frame:IsA("BillboardGui") and frame.Enabled and frame.Adornee then
+                    if (hrp and frame.Adornee == hrp)
+                        or frame.Adornee == targetModel
+                        or frame.Adornee:IsDescendantOf(targetModel) then
+                        return true
+                    end
+                end
+            end
+        end
+
+        if targetModel:GetAttribute("Staggered") or targetModel:GetAttribute("StanceBreak") then
+            return true
+        end
+    end
+
+    if type(unitData) == "table" and type(unitData.Hand) == "table" and next(unitData.Hand) == nil then
+        return true
+    end
+
+    return false
+end
+
+local function getPlayerPosture()
+    local ok, v = pcall(function() return PlayerStats.Posture end)
+    if ok and type(v) == "number" then return v end
+    local ok2, txt = pcall(function()
+        local ally = CombatGui:FindFirstChild("AllyDataList")
+        local post = ally and ally:FindFirstChild("Posture")
+        local lbl = post and post:FindFirstChild("Label")
+        return lbl and lbl.Text
+    end)
+    if ok2 and type(txt) == "string" then return tonumber(txt) end
+    return nil
+end
+
+local function currentHPPercent()
+    local hp    = toNumber(PlayerStats.Health)    or 100
+    local maxHp = toNumber(PlayerStats.MaxHealth) or hp
+    if maxHp <= 0 then return 100 end
+    return (hp / maxHp) * 100
+end
+
+----------------------------------------------------------------------
+-- HAND & E.G.O SCANNERS
+----------------------------------------------------------------------
+local function getEGOCards()
+    local egoCards = {}
+    if not (PlayerStats and type(PlayerStats.EGOHand) == "table") then
+        return egoCards
+    end
+    for k, raw in pairs(PlayerStats.EGOHand) do
+        local attackId = tostring(raw[3] or k)
+        local parsed = parseCardData(raw, attackId)
+        if parsed then
+            parsed.Source = "EGO"
+            table.insert(egoCards, parsed)
+        end
+    end
+    return egoCards
+end
+
+local function resolveRawCard(attackId)
+    local src = PlayerStats.Hand and PlayerStats.Hand[attackId]
+    if src then return src, "Hand" end
+    if AUTO_USE_EGO then
+        local ego = PlayerStats.EGOHand and PlayerStats.EGOHand[attackId]
+        if ego then return ego, "EGO" end
+    end
+    local function scan(tbl, tag)
+        if type(tbl) ~= "table" then return nil end
+        for k, v in pairs(tbl) do
+            if type(v) == "table" and (tostring(k) == tostring(attackId) or tostring(v[3] or "") == tostring(attackId)) then
+                return v, tag
+            end
+        end
+        return nil
+    end
+    local a, aTag = scan(PlayerStats.Hand, "Hand")
+    if a then return a, aTag end
+    if AUTO_USE_EGO then
+        local e, eTag = scan(PlayerStats.EGOHand, "EGO")
+        if e then return e, eTag end
+    end
+    return nil
+end
+
+local function scanCardButtons(container, out, seen)
+    if not container then return end
+    for _, child in ipairs(container:GetChildren()) do
+        if child:IsA("TextButton") then
+            local attackId = child:GetAttribute("AttackId")
+            if attackId and not seen[tostring(attackId)] then
+                local raw, source = resolveRawCard(attackId)
+                if raw then
+                    local parsed = parseCardData(raw, tostring(attackId))
+                    if parsed then
+                        parsed.Button = child
+                        parsed.Source = source
+                        seen[parsed.AttackId] = true
+                        table.insert(out, parsed)
+                    end
+                end
+            end
+        end
+    end
+end
+
+local function getCardsInHand()
+    local cards, seen = {}, {}
+    scanCardButtons(HandContainer, cards, seen)
+    scanCardButtons(CombatGui:FindFirstChild("GuardCardPosition"), cards, seen)
+
+    if #cards == 0 and PlayerStats and type(PlayerStats.Hand) == "table" then
+        for k, raw in pairs(PlayerStats.Hand) do
+            local attackId = tostring(raw[3] or k)
+            if not seen[attackId] then
+                local parsed = parseCardData(raw, attackId)
+                if parsed then
+                    parsed.Source = "Hand"
+                    seen[attackId] = true
+                    table.insert(cards, parsed)
+                end
+            end
+        end
+    end
+
+    return cards
+end
+
+----------------------------------------------------------------------
+-- ENEMY SCANNER WITH TARGETABILITY VERIFICATION
+----------------------------------------------------------------------
+local function getEntitiesFolder()
+    return Workspace:FindFirstChild("Entities")
+        or Workspace:FindFirstChild("BattleEntities")
+        or Workspace:FindFirstChild("Units")
+end
+
+local function findUnitDataForModel(model, modelId)
+    if modelId and CachedBattleUnits[modelId] then
+        return CachedBattleUnits[modelId], modelId
+    end
+    if CachedBattleUnits[model.Name] then
+        return CachedBattleUnits[model.Name], model.Name
+    end
+    for id, uData in pairs(CachedBattleUnits) do
+        if type(uData) == "table" then
+            if uData.Model == model then
+                return uData, id
+            elseif modelId and (uData.Id == modelId or tostring(uData[10] or "") == modelId) then
+                return uData, id
+            end
+        end
+    end
+    return nil, modelId or model.Name
+end
+
+local function getAliveEnemies()
+    local enemies = {}
+    local seenIds = {}
+    local seenModels = {}
+
+    local entitiesFolder = getEntitiesFolder()
+
+    local function addEnemy(id, unitData, model, frame)
+        if not id or id == "" then return end
+        if seenIds[id] then return end
+
+        if not (model and model.Parent) then
+            if unitData and unitData.Model and unitData.Model.Parent then
+                model = unitData.Model
+            elseif entitiesFolder then
+                model = entitiesFolder:FindFirstChild(id)
+                if not model then
+                    for _, child in ipairs(entitiesFolder:GetChildren()) do
+                        if child:IsA("Model") and (child:GetAttribute("id") == id or child.Name == id) then
+                            model = child
+                            break
+                        end
+                    end
+                end
+            end
+        end
+
+        if not (model and model.Parent) then return end
+        if seenModels[model] then return end
+
+        if model == LocalPlayer.Character or Players:GetPlayerFromCharacter(model) then return end
+        if model:GetAttribute("Untargetable") then return end
+        if model:GetAttribute("Dead") or model:GetAttribute("IsDead") then return end
+
+        local hum = model:FindFirstChildOfClass("Humanoid")
+        if hum and hum.Health <= 0 then return end
+
+        if unitData and (not unitData.Model or unitData.Model ~= model) then
+            unitData.Model = model
+        end
+
+        local health = toNumber(unitData and unitData.Health) or (hum and hum.Health) or 0
+        if health <= 0 and (not hum or hum.Health <= 0) then return end
+
+        local maxHealth = toNumber(unitData and unitData.MaxHealth) or (hum and hum.MaxHealth) or health
+        local tempHealth = toNumber(unitData and unitData.TempHealth) or 0
+        local speed = toNumber(unitData and unitData.Speed) or 0
+
+        local handCount, handKnown = 0, false
+        if unitData and type(unitData.Hand) == "table" then
+            handCount, handKnown = #unitData.Hand, true
+        elseif frame then
+            local holder = frame:FindFirstChild("CardsInHand")
+            local label = holder and holder:FindFirstChild("Label")
+            local n = label and tonumber(label.Text)
+            if n then handCount, handKnown = math.max(0, n), true end
+        end
+
+        local staggered = isEnemyStaggered(unitData, model)
+        local defending = (not staggered) and handKnown and handCount > 0
+            and isEnemyCardDefensiveOrEvasive(unitData)
+
+        local threatScore, offensiveCards, scanned, topCard, profile = 0, handCount, 0, 0, {}
+        if handKnown and handCount > 0 then
+            threatScore, offensiveCards, scanned, topCard, profile = estimateEnemyThreat(unitData)
+            if scanned == 0 then offensiveCards = handCount end
+        end
+        if staggered then
+            offensiveCards, threatScore, topCard = 0, 0, 0
+        elseif defending then
+            offensiveCards = 0
+        end
+
+        seenIds[id] = true
+        seenModels[model] = true
+
+        local rawName = (unitData and unitData.DisplayName) or model:GetAttribute("DisplayName") or model.Name
+        local shortId = tostring(id):sub(1, 6)
+        local uniqueDisplayName = string.format("%s [%s]", rawName, shortId)
+
+        table.insert(enemies, {
+            Id = id,
+            Name = uniqueDisplayName,
+            DisplayName = rawName,
+            UnitData = unitData,
+            Model = model,
+            HandCount = handCount,
+            HandKnown = handKnown,
+            Health = health,
+            MaxHealth = maxHealth,
+            TempHealth = tempHealth,
+            EffectiveHP = health + tempHealth,
+            Speed = speed,
+            IsStaggered = staggered,
+            IsDefendingOrEvading = defending,
+            OffensiveThreats = offensiveCards,
+            ThreatScore = threatScore,
+            TopCardThreat = topCard,
+            DamageProfileString = profileToString(profile),
+        })
+    end
+
+    if entitiesFolder then
+        for _, ent in ipairs(entitiesFolder:GetChildren()) do
+            if ent:IsA("Model") and ent ~= LocalPlayer.Character and not Players:GetPlayerFromCharacter(ent) then
+                local mId = ent:GetAttribute("id") or ent.Name
+                local uData, resolvedId = findUnitDataForModel(ent, mId)
+                local frame = EnemyContainer:FindFirstChild(resolvedId) or EnemyContainer:FindFirstChild(mId)
+                addEnemy(resolvedId or mId, uData, ent, frame)
+            end
+        end
+    end
+
+    for _, frame in ipairs(EnemyContainer:GetChildren()) do
+        if frame:IsA("Frame") and frame.Name ~= "" then
+            local uData = CachedBattleUnits[frame.Name]
+            addEnemy(frame.Name, uData, uData and uData.Model, frame)
+        end
+    end
+
+    for id, uData in pairs(CachedBattleUnits) do
+        if type(uData) == "table" then
+            local frame = EnemyContainer:FindFirstChild(id)
+            addEnemy(id, uData, uData.Model, frame)
+        end
+    end
+
+    return enemies
+end
+
+----------------------------------------------------------------------
+-- CLASH EVALUATION
+----------------------------------------------------------------------
+local function evaluateClash(cardObj, enemy)
+    if not enemy or enemy.IsStaggered or (enemy.HandKnown and enemy.HandCount == 0) then
+        return 5, cardObj.MaxPower, nil, "Unopposed"
+    end
+
+    local prediction = nil
+    if enemy.Model then
+        pcall(function()
+            prediction = clashPredictor:InvokeServer(cardObj.BasePower, cardObj.MaxPower, cardObj.RawData, enemy.Model)
+        end)
+    end
+
+    if type(prediction) == "table" then
+        local pBase = toNumber(prediction.PlayerBaseValue) or cardObj.BasePower
+        local eBase = toNumber(prediction.EnemyBaseValue) or 0
+        local eMax = toNumber(prediction.EnemyMaxValue) or 0
+        local score = toNumber(prediction.Score) or 0
+
+        if math.max(eBase, eMax) < pBase then
+            return 5, 1000 + score, prediction, "Certain Victory"
+        elseif score > CLASH_OVERWHELM_SCORE then
+            return 4, 500 + score, prediction, "Overwhelming Advantage"
+        elseif score > CLASH_ADVANTAGE_SCORE then
+            return 3, 200 + score, prediction, "Advantaged"
+        elseif score >= CLASH_RISKY_SCORE then
+            return 2, 50 + score, prediction, "Risky"
+        else
+            return 1, score, prediction, "Desperate/Hopeless"
+        end
+    end
+
+    return 3, cardObj.MaxPower, nil, "No Prediction"
+end
+
+----------------------------------------------------------------------
+-- COMBAT CARD SELECTION (With Flat & PCT E.G.O Threat Gates)
+----------------------------------------------------------------------
+local function selectCardForEnemy(cardsInHand, targetEnemy, isOpposed)
+    if #cardsInHand == 0 then return nil end
+
+    local offensives, defenses = {}, {}
+    for _, card in ipairs(cardsInHand) do
+        if card.IsDefenseOrEvade then
+            table.insert(defenses, card)
+        else
+            table.insert(offensives, card)
+        end
+    end
+    table.sort(offensives, function(a, b)
+        if a.MaxPower ~= b.MaxPower then return a.MaxPower > b.MaxPower end
+        return a.Cost < b.Cost
+    end)
+    table.sort(defenses, function(a, b) return a.MaxPower > b.MaxPower end)
+
+    local bestDefense = defenses[1]
+    local bestEvade = nil
+    for _, d in ipairs(defenses) do
+        if d.DefenseKind == "Evade" then bestEvade = d break end
+    end
+
+    local canDefend = (#defenses > KEEP_DEFENSE_RESERVE)
+    local safe = canDefend
+        and ((PREFER_EVADE_OVER_GUARD and (bestEvade or bestDefense)) or (bestDefense or bestEvade))
+        or nil
+
+    -- Staggered / Unopposed Target Logic
+    if targetEnemy.IsStaggered or targetEnemy.HandCount == 0 or not isOpposed then
+        if targetEnemy.IsDefendingOrEvading and targetEnemy.HandCount > 0 and not targetEnemy.IsStaggered then
+            -- Fall through to clash calculation
+        else
+            if #offensives > 0 then
+                local eRes = getUnitResistances(targetEnemy.UnitData)
+                local chosen, chosenDmg = offensives[1], -1
+                for _, c in ipairs(offensives) do
+                    local d = expectedDamage(c, eRes)
+                    if d > chosenDmg then chosen, chosenDmg = c, d end
+                end
+                Log("THINK", string.format("Target %s is %s. Best damage: <font color='#B388FF'>%s</font> (~%d Dmg).",
+                    targetEnemy.Name, targetEnemy.IsStaggered and "STAGGERED" or "UNOPPOSED", chosen.Name, math.floor(chosenDmg)), "#B0BEC5")
+                return chosen
+            end
+            if PLAY_LEFTOVER_EVADES and bestEvade then return bestEvade end
+            return bestDefense
+        end
+    end
+
+    if targetEnemy.IsDefendingOrEvading then
+        if canDefend and bestDefense then return bestDefense end
+        if #offensives > 0 then return offensives[#offensives] end
+    end
+
+    -- 1. Evaluate Normal Hand Attacks
+    local scored = {}
+    for _, card in ipairs(offensives) do
+        local rank, score, _, verdict = evaluateClash(card, targetEnemy)
+        table.insert(scored, { Card = card, Rank = rank, Score = score, Verdict = verdict })
+    end
+
+    table.sort(scored, function(a, b)
+        if a.Rank ~= b.Rank then return a.Rank > b.Rank end
+        return a.Score > b.Score
+    end)
+
+    local bestNormal = scored[1]
+
+    -- If normal attack wins the clash (Advantaged / Overwhelming / Certain Victory)
+    if bestNormal and bestNormal.Rank > DEFENSE_SWAP_MAX_RANK then
+        Log("PREDICT", string.format("Clash vs %s -> <font color='#B388FF'>%s</font> [<b>%s</b>, Score: %d].",
+            targetEnemy.Name, bestNormal.Card.Name, bestNormal.Verdict, math.floor(bestNormal.Score)), "#2ECC71")
+        return bestNormal.Card
+    end
+
+    -- =========================================================================
+    -- 2. SMART THREAT-GATED E.G.O CLASH SOLVER (Flat & PCT Thresholds)
+    -- =========================================================================
+    if AUTO_USE_EGO and (EGO_USAGE_MODE == "Emergency" or EGO_USAGE_MODE == "Always") then
+        local currentPosture = getPlayerPosture() or 0
+        local currentHp = toNumber(PlayerStats.Health) or 100
+        local maxHp = toNumber(PlayerStats.MaxHealth) or currentHp
+
+        if currentPosture >= EGO_MIN_POSTURE_LIMIT then
+            -- Calculate incoming enemy damage and its percentage of your Max HP
+            local incomingDamage = calculateEnemyIncomingDamage(targetEnemy)
+            local incomingPct = (maxHp > 0) and ((incomingDamage / maxHp) * 100) or 0
+
+            local isLethalRisk = EGO_USE_ON_LETHAL and (incomingDamage >= currentHp)
+            local isFlatThreat = (EGO_MIN_THREAT_DAMAGE > 0) and (incomingDamage >= EGO_MIN_THREAT_DAMAGE)
+            local isPctThreat  = (EGO_MIN_THREAT_DAMAGE_PCT > 0) and (incomingPct >= EGO_MIN_THREAT_DAMAGE_PCT)
+
+            local isHighThreat = isFlatThreat or isPctThreat
+
+            -- Only consider burning an E.G.O if the incoming hit is legitimately dangerous
+            if isHighThreat or isLethalRisk then
+                local egoCards = getEGOCards()
+                local egoScored = {}
+
+                for _, egoCard in ipairs(egoCards) do
+                    local rank, score, _, verdict = evaluateClash(egoCard, targetEnemy)
+                    table.insert(egoScored, { Card = egoCard, Rank = rank, Score = score, Verdict = verdict })
+                end
+
+                table.sort(egoScored, function(a, b)
+                    if a.Rank ~= b.Rank then return a.Rank > b.Rank end
+                    return a.Score > b.Score
+                end)
+
+                local bestEGO = egoScored[1]
+                if bestEGO and bestEGO.Rank > DEFENSE_SWAP_MAX_RANK then
+                    local threatReason = isLethalRisk and "LETHAL RISK"
+                        or (isPctThreat and string.format("%.1f%% Max HP", incomingPct)
+                        or string.format("%d Dmg", math.floor(incomingDamage)))
+                        
+                    Log("EGO", string.format("Threat (%s) -> Deployed E.G.O: <font color='#FFD54F'><b>%s</b></font> [<b>%s</b>]!",
+                        threatReason, bestEGO.Card.Name, bestEGO.Verdict), "#FFD54F")
+                    return bestEGO.Card
+                end
+            else
+                Log("THINK", string.format("Enemy attack is low threat (~%d Dmg, %.1f%% HP). Conserving E.G.O...",
+                    math.floor(incomingDamage), incomingPct), "#B0BEC5")
+            end
+        end
+    end
+
+    -- =========================================================================
+    -- 3. FALLBACK: TANK / EVADE / GUARD
+    -- =========================================================================
+    if bestNormal then
+        Log("PREDICT", string.format("Clash vs %s -> <font color='#B388FF'>%s</font> [<b>%s</b>, Score: %d].",
+            targetEnemy.Name, bestNormal.Card.Name, bestNormal.Verdict, math.floor(bestNormal.Score)), "#EB4D4B")
+
+        if safe then
+            Log("DEFENSE", string.format("Clash unsafe. Conserving E.G.O -> Defensive: <font color='#CE93D8'>%s</font>.", safe.Name), "#BA68C8")
+            return safe
+        end
+
+        return bestNormal.Card
+    end
+
+    return safe or bestDefense
+end
+
+----------------------------------------------------------------------
+-- HARDENED COMBAT TURN ENGINE
+----------------------------------------------------------------------
+local function tryEndTurn()
+    task.wait(ACTION_DELAY)
+    
+    local endWaitStart = os.clock()
+    while LocalPlayer:GetAttribute("Active") and (os.clock() - endWaitStart < CLASH_MAX_TIMEOUT) do
+        if not LocalPlayer:GetAttribute("IsYourTurn") or not CombatGui.Enabled or isPlayerDead() then
+            break
+        end
+        task.wait(0.1)
+    end
+    LocalPlayer:SetAttribute("Active", false)
+
+    if IsBotRunning and CombatMode > 0
+        and LocalPlayer:GetAttribute("IsYourTurn")
+        and CombatGui.Enabled then
+        Log("TURN", "Turn completed. Sending EndTurn request...", "#90A4AE")
+        endTurn:FireServer()
+        task.wait(END_TURN_COOLDOWN)
+    end
+end
+
+local function processTurn()
+    if isPlayerDead() then return end
+    if not (LocalPlayer:GetAttribute("IsYourTurn") and CombatGui.Enabled) then return end
+
+    if not ableToPlay() then
+        if LocalPlayer:GetAttribute("Active") then
+            local clashWait = os.clock()
+            while LocalPlayer:GetAttribute("Active") and (os.clock() - clashWait < CLASH_MAX_TIMEOUT) do
+                if not LocalPlayer:GetAttribute("IsYourTurn") or not CombatGui.Enabled or isPlayerDead() then return end
+                task.wait(0.1)
+            end
+            LocalPlayer:SetAttribute("Active", false)
+        else
+            return
+        end
+    end
+
+    Log("TURN", "Player turn detected. Inspecting battlefield...", "#8A5CFF")
+
+    if SyncHoldSince == nil then SyncHoldSince = os.clock() end
+    local lastHoldLog, dataFound = 0, false
+    while os.clock() - SyncHoldSince < ENCOUNTER_SYNC_TIMEOUT do
+        if isPlayerDead() then return end
+        local enemiesNow = getAliveEnemies()
+        if #enemiesNow > 0 then
+            local anyHand = false
+            for _, e in ipairs(enemiesNow) do
+                if e.HandKnown then anyHand = true break end
+            end
+            if anyHand then
+                dataFound = true
+                break
+            end
+        end
+        if not IsBotRunning or not LocalPlayer:GetAttribute("IsYourTurn") then
+            SyncHoldSince = nil
+            return
+        end
+        if os.clock() - lastHoldLog > SYNC_LOG_THROTTLE then
+            Log("WAIT", string.format("Encounter loading (units: %d). Holding turn...", #enemiesNow), "#FFD54F")
+            lastHoldLog = os.clock()
+        end
+        task.wait(0.2)
+    end
+
+    SyncHoldSince = nil
+    if dataFound and LocalPlayer:GetAttribute("IsYourTurn") then
+        task.wait(SYNC_SETTLE_DELAY)
+    end
+
+    local graceStart = os.clock()
+    while os.clock() - graceStart < TURN_GRACE_TIME do
+        if isPlayerDead() then return end
+        if #getCardsInHand() > 0 and #getAliveEnemies() > 0 then break end
+        task.wait(0.1)
+    end
+
+    local enemies = getAliveEnemies()
+    local cardsInHand = getCardsInHand()
+
+    if #enemies == 0 or #cardsInHand == 0 then
+        tryEndTurn()
+        return
+    end
+
+    local pendingThreats, pendingThreatScore, timesTargeted = {}, {}, {}
+    for _, enemy in ipairs(enemies) do
+        pendingThreats[enemy.Id] = enemy.OffensiveThreats
+        pendingThreatScore[enemy.Id] = enemy.ThreatScore
+        timesTargeted[enemy.Id] = 0
+    end
+
+    local playedThisTurn = {}
+    local actionsThisTurn = 0
+    local turnDone = false
+    local FocusTargetId = nil
+
+    while (not turnDone)
+        and actionsThisTurn < MAX_ACTIONS_PER_TURN
+        and IsBotRunning
+        and LocalPlayer:GetAttribute("IsYourTurn")
+        and not isPlayerDead()
+        and CombatGui.Enabled do
+
+        if not ableToPlay() then
+            if LocalPlayer:GetAttribute("Active") then
+                local clashWait = os.clock()
+                while LocalPlayer:GetAttribute("Active") and (os.clock() - clashWait < CLASH_MAX_TIMEOUT) do
+                    if not LocalPlayer:GetAttribute("IsYourTurn") or not CombatGui.Enabled or isPlayerDead() then
+                        turnDone = true
+                        break
+                    end
+                    task.wait(0.1)
+                end
+                LocalPlayer:SetAttribute("Active", false)
+                task.wait(ACTION_POST_DELAY)
+            else
+                turnDone = true
+                break
+            end
+        end
+
+        if not turnDone then
+            enemies = getAliveEnemies()
+            if #enemies == 0 then
+                turnDone = true
+            else
+                cardsInHand = getCardsInHand()
+                local available = {}
+                for _, c in ipairs(cardsInHand) do
+                    if not playedThisTurn[c.AttackId] then table.insert(available, c) end
+                end
+
+                if #available == 0 then
+                    turnDone = true
+                else
+                    for _, enemy in ipairs(enemies) do
+                        if pendingThreats[enemy.Id] == nil then
+                            pendingThreats[enemy.Id] = enemy.OffensiveThreats
+                            pendingThreatScore[enemy.Id] = enemy.ThreatScore
+                            timesTargeted[enemy.Id] = 0
+                        else
+                            pendingThreats[enemy.Id] = math.min(pendingThreats[enemy.Id], enemy.OffensiveThreats)
+                            pendingThreatScore[enemy.Id] = (pendingThreats[enemy.Id] == 0) and 0 or enemy.ThreatScore
+                        end
+                    end
+
+                    local totalThreatsLeft = 0
+                    for _, enemy in ipairs(enemies) do
+                        totalThreatsLeft = totalThreatsLeft + (pendingThreats[enemy.Id] or 0)
+                    end
+
+                    local chosenEnemy = nil
+                    local isOpposed = false
+
+                    if CombatMode == 1 then
+                        if totalThreatsLeft > 0 then
+                            table.sort(enemies, function(a, b)
+                                local aT, bT = pendingThreats[a.Id] or 0, pendingThreats[b.Id] or 0
+                                local aS, bS = pendingThreatScore[a.Id] or 0, pendingThreatScore[b.Id] or 0
+                                local aH, bH = timesTargeted[a.Id] or 0, timesTargeted[b.Id] or 0
+                                if (aT > 0) ~= (bT > 0) then return aT > 0 end
+                                if aS ~= bS then return aS > bS end
+                                if TARGET_STAGGERED_FIRST and a.IsStaggered ~= b.IsStaggered then return a.IsStaggered end
+                                if aH ~= bH then return aH < bH end
+                                if THREAT_TIEBREAK_SPEED and a.Speed ~= b.Speed then return a.Speed > b.Speed end
+                                return a.Id < b.Id
+                            end)
+                            chosenEnemy = enemies[1]
+                            isOpposed = (pendingThreats[chosenEnemy.Id] or 0) > 0
+                                and chosenEnemy.HandCount > 0 and not chosenEnemy.IsStaggered
+                        else
+                            local hasOffense, strongest = false, 0
+                            for _, c in ipairs(available) do
+                                if not c.IsDefenseOrEvade then
+                                    hasOffense = true
+                                    if c.MaxPower > strongest then strongest = c.MaxPower end
+                                end
+                            end
+
+                            local posture = getPlayerPosture()
+                            if posture and posture < LOW_POSTURE_LIMIT then
+                                turnDone = true
+                            elseif hasOffense then
+                                local killLine = strongest * KILL_MARGIN
+                                table.sort(enemies, function(a, b)
+                                    if TARGET_STAGGERED_FIRST and a.IsStaggered ~= b.IsStaggered then return a.IsStaggered end
+                                    if TARGET_KILLABLE_FIRST then
+                                        local aK, bK = a.EffectiveHP <= killLine, b.EffectiveHP <= killLine
+                                        if aK ~= bK then return aK end
+                                    end
+                                    if a.EffectiveHP ~= b.EffectiveHP then return a.EffectiveHP < b.EffectiveHP end
+                                    return a.Id < b.Id
+                                end)
+                                chosenEnemy = enemies[1]
+                                isOpposed = chosenEnemy.HandCount > 0 and not chosenEnemy.IsStaggered
+                            elseif PLAY_LEFTOVER_EVADES then
+                                chosenEnemy = enemies[1]
+                                isOpposed = false
+                            else
+                                turnDone = true
+                            end
+                        end
+                    else
+                        if AGGRO_FOCUS_FIRE and FocusTargetId then
+                            for _, e in ipairs(enemies) do
+                                if e.Id == FocusTargetId then chosenEnemy = e break end
+                            end
+                        end
+
+                        if not chosenEnemy then
+                            table.sort(enemies, function(a, b)
+                                if TARGET_STAGGERED_FIRST and a.IsStaggered ~= b.IsStaggered then return a.IsStaggered end
+                                local aS, bS = pendingThreatScore[a.Id] or 0, pendingThreatScore[b.Id] or 0
+                                if aS ~= bS then return aS > bS end
+                                if a.EffectiveHP ~= b.EffectiveHP then return a.EffectiveHP < b.EffectiveHP end
+                                return a.Id < b.Id
+                            end)
+                            chosenEnemy = enemies[1]
+                        end
+
+                        if chosenEnemy then FocusTargetId = chosenEnemy.Id end
+                        isOpposed = chosenEnemy and chosenEnemy.HandCount > 0 and not chosenEnemy.IsStaggered
+                    end
+
+                    if not chosenEnemy or not chosenEnemy.Model or not chosenEnemy.Model.Parent then
+                        turnDone = true
+                    else
+                        if chosenEnemy.Model:GetAttribute("Untargetable") or chosenEnemy.Health <= 0 then
+                            turnDone = true
+                        else
+                            timesTargeted[chosenEnemy.Id] = (timesTargeted[chosenEnemy.Id] or 0) + 1
+                            pcall(function() LockOnSystem.setLockOn(chosenEnemy.Model, chosenEnemy.UnitData) end)
+                            task.wait(ACTION_DELAY)
+
+                            local cardToPlay = selectCardForEnemy(available, chosenEnemy, isOpposed)
+                            if not cardToPlay or playedThisTurn[cardToPlay.AttackId] then
+                                turnDone = true
+                            else
+                                local movementOk = true
+                                if LockOnSystem and LockOnSystem.detectMovement then
+                                    local okDetect, resDetect = pcall(LockOnSystem.detectMovement, cardToPlay.RawData)
+                                    if okDetect and resDetect == false then
+                                        movementOk = false
+                                    end
+                                end
+
+                                if not movementOk then
+                                    Log("WARN", string.format("Movement cannot reach %s with %s.", chosenEnemy.Name, cardToPlay.Name), "#FFD54F")
+                                    playedThisTurn[cardToPlay.AttackId] = true
+                                else
+                                    local targetId = chosenEnemy.Model:GetAttribute("id") or chosenEnemy.Id
+                                    LocalPlayer:SetAttribute("Active", true)
+                                    actionsThisTurn = actionsThisTurn + 1
+
+                                    Log("EXEC", string.format("Playing <font color='#B388FF'><b>%s</b></font> on %s...",
+                                        cardToPlay.Name, chosenEnemy.Name), "#B388FF")
+
+                                    if cardToPlay.Source == "EGO" then
+                                        playEGOAttack:FireServer(cardToPlay.RawData.Name or cardToPlay.Name, cardToPlay.AttackId, targetId)
+                                    else
+                                        playAttack:FireServer(cardToPlay.AttackId, targetId)
+                                    end
+
+                                    playedThisTurn[cardToPlay.AttackId] = true
+                                    if cardToPlay.Button then pcall(function() cardToPlay.Button:Destroy() end) end
+
+                                    if (pendingThreats[chosenEnemy.Id] or 0) > 0 then
+                                        pendingThreats[chosenEnemy.Id] = pendingThreats[chosenEnemy.Id] - 1
+                                    end
+
+                                    local t0 = os.clock()
+                                    task.wait(0.15)
+                                    while (os.clock() - t0 < CLASH_MAX_TIMEOUT) do
+                                        if not LocalPlayer:GetAttribute("Active") then
+                                            break
+                                        end
+                                        if not LocalPlayer:GetAttribute("IsYourTurn") then
+                                            break
+                                        end
+                                        if not CombatGui.Enabled or not HandContainer.Visible then
+                                            break
+                                        end
+                                        if isPlayerDead() then
+                                            break
+                                        end
+                                        task.wait(0.1)
+                                    end
+
+                                    LocalPlayer:SetAttribute("Active", false)
+                                    task.wait(ACTION_POST_DELAY)
+                                end
+                            end
+                        end
+                    end
+                end
+            end
+        end
+    end
+
+    tryEndTurn()
+end
+
+----------------------------------------------------------------------
+-- ACTIVE COMBAT CHECKER
+----------------------------------------------------------------------
+local function isInActiveCombat(): boolean
+    if not (CombatGui and CombatGui.Enabled) then
+        return false
+    end
+
+    local rewardFrame = DungeonGui:FindFirstChild("RewardFrame")
+    if rewardFrame and rewardFrame.Visible then return false end
+
+    local dialogue = DungeonGui:FindFirstChild("DialogueContainer")
+    if dialogue and dialogue.Visible then return false end
+
+    local rest = DungeonGui:FindFirstChild("RestContainer") or DungeonGui:FindFirstChild("RestFrame")
+    if rest and rest.Visible then return false end
+
+    local pickBoss = DungeonGui:FindFirstChild("PickBossFrame")
+    if pickBoss and pickBoss.Visible then return false end
+
+    local isTurn = LocalPlayer:GetAttribute("IsYourTurn") == true
+    local hasCards = HandContainer.Visible and #HandContainer:GetChildren() > 0
+    local hasEnemies = #getAliveEnemies() > 0
+
+    return (isTurn or hasCards) and hasEnemies
+end
+
+----------------------------------------------------------------------
+-- AUTO-RETRY RESOLVER
+----------------------------------------------------------------------
+local function handleAutoRetry()
+    if not AUTO_RETRY_ENABLED then return false end
+
+    local finishGui = LocalPlayer.PlayerGui:FindFirstChild("FinishGui")
+    if not (finishGui and finishGui.Enabled) then return false end
+
+    local finishContainer = finishGui:FindFirstChild("FinishContainer")
+    if not finishContainer then return false end
+
+    local retryBtn = finishContainer:FindFirstChild("Retry")
+    if retryBtn and (retryBtn:IsA("GuiButton") or retryBtn:IsA("TextButton") or retryBtn:IsA("ImageButton")) and retryBtn.Visible then
+        Log("RUN", "Run complete detected (FinishGui). Clicking <font color='#FFD54F'><b>Retry</b></font>...", "#FFD54F")
+        fireButtonClick(retryBtn)
+        task.wait(RETRY_DELAY)
+        return true
+    end
+
+    return false
+end
+
+----------------------------------------------------------------------
+-- AUTO-BOSS PICK RESOLVER
+----------------------------------------------------------------------
+local LastBossVoteAt = 0
+
+local function getBossOptionPriority(bossName: string): number
+    if not bossName or bossName == "" then return -math.huge end
+    
+    if BOSS_PRIORITY_LIST[bossName] then
+        return BOSS_PRIORITY_LIST[bossName]
+    end
+    
+    local lower = bossName:lower()
+    for name, prio in pairs(BOSS_PRIORITY_LIST) do
+        if lower:find(name:lower(), 1, true) or name:lower():find(lower, 1, true) then
+            return prio
+        end
+    end
+    
+    return BOSS_DEFAULT_PRIORITY
+end
+
+local function handleAutoBossVote()
+    if not AUTO_BOSS_VOTE_ENABLED then return false end
+    if isPlayerDead() then return false end
+    
+    local now = os.clock()
+    if now - LastBossVoteAt < BOSS_VOTE_COOLDOWN then return false end
+    
+    local pickBossFrame = DungeonGui:FindFirstChild("PickBossFrame")
+    if not (pickBossFrame and pickBossFrame.Visible) then return false end
+    
+    local loadingGui = LocalPlayer.PlayerGui:FindFirstChild("LoadingGui")
+    if loadingGui and loadingGui.Enabled then return false end
+    
+    local options = {}
+    for i = 1, 3 do
+        local optBtn = pickBossFrame:FindFirstChild("BossOption" .. i)
+        if optBtn and optBtn:IsA("TextButton") and optBtn.Visible then
+            local nameLbl = optBtn:FindFirstChild("BossName")
+            local bossName = nameLbl and nameLbl.Text or ""
+            if bossName ~= "" then
+                local prio = getBossOptionPriority(bossName)
+                table.insert(options, {
+                    Index = i,
+                    Button = optBtn,
+                    Name = bossName,
+                    Priority = prio,
+                })
+            end
+        end
+    end
+    
+    if #options == 0 then return false end
+    
+    if BOSS_VOTE_STRATEGY == "Priority" then
+        table.sort(options, function(a, b)
+            if a.Priority ~= b.Priority then return a.Priority > b.Priority end
+            return a.Index < b.Index
+        end)
+    elseif BOSS_VOTE_STRATEGY == "Random" then
+        options = { options[math.random(1, #options)] }
+    end
+    
+    local chosen = options[1]
+    if chosen and chosen.Button then
+        LastBossVoteAt = now
+        Log("BOSS", string.format("Voting for Boss: <font color='#FFD54F'><b>%s</b></font> (Priority: %d)...",
+            chosen.Name, chosen.Priority), "#FFD54F")
+        
+        fireButtonClick(chosen.Button)
+        
+        local playerVoteOnBoss = Events:FindFirstChild("PlayerVoteOnBoss")
+        if playerVoteOnBoss and playerVoteOnBoss:IsA("RemoteFunction") then
+            pcall(function() playerVoteOnBoss:InvokeServer(chosen.Name) end)
+        end
+        
+        task.wait(0.8)
+        return true
+    end
+    
+    return false
+end
+
+----------------------------------------------------------------------
+-- DETERMINISTIC AUTO-REWARD RESOLVER (With Custom Passive Priority)
+----------------------------------------------------------------------
+local LastRewardActionAt = 0
+
+local function getPassivePriority(passiveName: string, passiveId: string?): number
+    if not passiveName or passiveName == "" then return -math.huge end
+    
+    if CUSTOM_PASSIVE_PRIORITY[passiveName] then
+        return CUSTOM_PASSIVE_PRIORITY[passiveName]
+    end
+    if passiveId and CUSTOM_PASSIVE_PRIORITY[passiveId] then
+        return CUSTOM_PASSIVE_PRIORITY[passiveId]
+    end
+    
+    local lower = passiveName:lower()
+    for name, prio in pairs(CUSTOM_PASSIVE_PRIORITY) do
+        local nLower = name:lower()
+        if lower == nLower or lower:find(nLower, 1, true) or nLower:find(lower, 1, true) then
+            return prio
+        end
+    end
+    
+    return PASSIVE_DEFAULT_PRIORITY
+end
+
+local function handleRewards()
+    if not AUTO_CLAIM_REWARDS then return false end
+    if isPlayerDead() then return false end
+
+    local rewardFrame = DungeonGui:FindFirstChild("RewardFrame")
+    if not (rewardFrame and rewardFrame.Visible) then return false end
+
+    local container = rewardFrame:FindFirstChild("Container")
+    if not container then return false end
+
+    local rewardContainer = container:FindFirstChild("RewardContainer")
+    local skipBtn = container:FindFirstChild("SkipButton")
+    local rewardsBtn = container:FindFirstChild("RewardsButton")
+
+    local now = os.clock()
+    if now - LastRewardActionAt < REWARD_SCAN_DELAY then return false end
+
+    -- 1. Check if Sub-Rewards (Cards / Passives in Slot 1..3) are displayed
+    local subRewardButtons = {}
+    for i = 1, 3 do
+        local slot = container:FindFirstChild("Reward" .. i)
+        if slot then
+            for _, child in ipairs(slot:GetChildren()) do
+                if (child:IsA("GuiButton") or child:IsA("TextButton") or child:IsA("ImageButton")) and child.Visible then
+                    local attackId = child:GetAttribute("AttackId")
+                    local passiveId = child:GetAttribute("PassiveId")
+                    local nameLbl = child:FindFirstChild("NameLabel")
+                    local name = nameLbl and nameLbl.Text or (attackId or (passiveId or child.Name))
+                    local costLbl = child:FindFirstChild("Cost") and child.Cost:FindFirstChild("Label")
+                    local cost = costLbl and tonumber(costLbl.Text) or 0
+
+                    table.insert(subRewardButtons, {
+                        Button = child,
+                        Name = name,
+                        AttackId = attackId,
+                        PassiveId = passiveId,
+                        Cost = cost,
+                        SlotIndex = i,
+                    })
+                end
+            end
+        end
+    end
+
+    if #subRewardButtons > 0 then
+        local isActionSub = subRewardButtons[1].AttackId ~= nil
+        local isPassiveSub = subRewardButtons[1].PassiveId ~= nil
+
+        -- Skip strategies
+        if (isActionSub and REWARD_CARD_STRATEGY == "Skip") or (isPassiveSub and REWARD_PASSIVE_STRATEGY == "Skip") then
+            if skipBtn and skipBtn.Visible then
+                Log("REWARD", "Skipping category selection...", "#B0BEC5")
+                fireButtonClick(skipBtn)
+                LastRewardActionAt = now
+                task.wait(REWARD_ACTION_DELAY)
+                return true
+            end
+        end
+
+        -- Action sorting
+        if isActionSub and REWARD_CARD_STRATEGY == "HighestRarity" then
+            table.sort(subRewardButtons, function(a, b)
+                return (a.Cost or 0) > (b.Cost or 0)
+            end)
+        end
+
+        -- Passive sorting with Custom Priority
+        if isPassiveSub and REWARD_PASSIVE_STRATEGY == "Priority" then
+            table.sort(subRewardButtons, function(a, b)
+                local aPrio = getPassivePriority(a.Name, a.PassiveId)
+                local bPrio = getPassivePriority(b.Name, b.PassiveId)
+                if aPrio ~= bPrio then
+                    return aPrio > bPrio
+                end
+                return a.SlotIndex < b.SlotIndex
+            end)
+        end
+
+        local chosenReward = subRewardButtons[1]
+        local prioTag = isPassiveSub and string.format(" [Priority: %d]", getPassivePriority(chosenReward.Name, chosenReward.PassiveId)) or ""
+        Log("REWARD", string.format("Claiming: <font color='#B388FF'><b>%s</b></font>%s", chosenReward.Name, prioTag), "#B388FF")
+        
+        fireButtonClick(chosenReward.Button)
+        LastRewardActionAt = now
+        task.wait(REWARD_ACTION_DELAY)
+        return true
+    end
+
+    -- 2. Check if Category Buttons exist in RewardContainer
+    local categoryButtons = {}
+    if rewardContainer then
+        for _, child in ipairs(rewardContainer:GetChildren()) do
+            if (child:IsA("TextButton") or child:IsA("ImageButton") or child:IsA("GuiButton")) and child.Visible then
+                table.insert(categoryButtons, child)
+            end
+        end
+    end
+
+    if #categoryButtons > 0 then
+        table.sort(categoryButtons, function(a, b)
+            local aText = (a:IsA("TextButton") and a.Text:lower()) or ""
+            local bText = (b:IsA("TextButton") and b.Text:lower()) or ""
+            local aIsCondense = aText:find("condense") ~= nil
+            local bIsCondense = bText:find("condense") ~= nil
+            if aIsCondense ~= bIsCondense then return aIsCondense end
+            return a.LayoutOrder < b.LayoutOrder
+        end)
+
+        local targetCategory = categoryButtons[1]
+        local catText = targetCategory:IsA("TextButton") and targetCategory.Text or targetCategory.Name
+        Log("REWARD", string.format("Opening: <font color='#FFD54F'><b>%s</b></font>", catText), "#FFD54F")
+        fireButtonClick(targetCategory)
+        LastRewardActionAt = now
+        task.wait(REWARD_ACTION_DELAY)
+        return true
+    end
+
+    -- 3. Finalize Loot Screen when no categories left
+    if rewardsBtn and rewardsBtn.Visible and (not skipBtn or not skipBtn.Visible) then
+        Log("REWARD", "All loot claimed. Finalizing Rewards...", "#2ECC71")
+        fireButtonClick(rewardsBtn)
+        LastRewardActionAt = now
+        task.wait(REWARD_FINISH_DELAY)
+        return true
+    end
+
+    return false
+end
+
+----------------------------------------------------------------------
+-- REST SITE AUTO-HEAL RESOLVER
+----------------------------------------------------------------------
+local LastRestActionAt = 0
+
+local function handleRestSite()
+    if not (AUTO_CONFIRM_REST and IsAutoNodeRunning) then return false end
+    if isPlayerDead() then return false end
+    if REST_ACTION ~= "Heal" then return false end
+
+    local restContainer = DungeonGui:FindFirstChild("RestContainer") or DungeonGui:FindFirstChild("RestFrame")
+    if not (restContainer and restContainer.Visible) then return false end
+
+    local now = os.clock()
+    if now - LastRestActionAt < REST_ACTION_DELAY then return false end
+
+    local healBtn = nil
+    local candidateNames = {"Heal", "HealButton", "HealOption", "Option1", "Option_Heal", "Rest", "RestButton", "Confirm"}
+    for _, name in ipairs(candidateNames) do
+        local btn = restContainer:FindFirstChild(name, true)
+        if btn and (btn:IsA("TextButton") or btn:IsA("ImageButton")) and btn.Visible then
+            healBtn = btn
+            break
+        end
+    end
+
+    if not healBtn then
+        for _, descendant in ipairs(restContainer:GetDescendants()) do
+            if (descendant:IsA("TextButton") or descendant:IsA("ImageButton")) and descendant.Visible then
+                local btnText = ""
+                if descendant:IsA("TextButton") then
+                    btnText = descendant.Text:lower()
+                end
+                for _, lbl in ipairs(descendant:GetDescendants()) do
+                    if lbl:IsA("TextLabel") and lbl.Visible then
+                        btnText = btnText .. " " .. lbl.Text:lower()
+                    end
+                end
+
+                if btnText:find("heal") or btnText:find("recover") or btnText:find("health") or btnText:find("hp") then
+                    healBtn = descendant
+                    break
+                end
+            end
+        end
+    end
+
+    if healBtn then
+        Log("REST", "Rest site active. Selecting <font color='#2ECC71'><b>Heal</b></font>...", "#2ECC71")
+        fireButtonClick(healBtn)
+        LastRestActionAt = now
+        task.wait(REST_ACTION_DELAY)
+
+        local confirmBtn = restContainer:FindFirstChild("Confirm", true) or restContainer:FindFirstChild("Continue", true)
+        if confirmBtn and confirmBtn:IsA("TextButton") and confirmBtn.Visible then
+            fireButtonClick(confirmBtn)
+        end
+
+        task.wait(0.8)
+        return true
+    end
+
+    return false
+end
+
+----------------------------------------------------------------------
+-- SMART AUTO-EVENT DIALOGUE RESOLVER (With Custom Choice Support)
+----------------------------------------------------------------------
+local LastEventActionAt = 0
+
+local function pickEventOption(optionVisible, optionGuaranteed)
+    local n = #optionVisible
+    if EVENT_OPTION_STRATEGY == "Last" then
+        for i = n, 1, -1 do
+            if optionVisible[i] then return i end
+        end
+    elseif EVENT_OPTION_STRATEGY == "Guaranteed" then
+        for i = 1, n do
+            if optionVisible[i] and optionGuaranteed[i] then return i end
+        end
+        if not EVENT_ALLOW_RISKY_FALLBACK then return nil end
+    end
+    for i = 1, n do
+        if optionVisible[i] then return i end
+    end
+    return nil
+end
+
+local function getCustomChoiceForEvent(eventName: string): number?
+    if not eventName or eventName == "" then return nil end
+    
+    if CUSTOM_EVENT_CHOICES[eventName] then
+        return CUSTOM_EVENT_CHOICES[eventName]
+    end
+    
+    local lower = eventName:lower()
+    for name, optNum in pairs(CUSTOM_EVENT_CHOICES) do
+        if lower:find(name:lower(), 1, true) or name:lower():find(lower, 1, true) then
+            return optNum
+        end
+    end
+    
+    return nil
+end
+
+local function processAutoEvent()
+    if not (AUTO_EVENT_RESOLVER and IsAutoNodeRunning and DialogueContainer and DialogueContainer.Visible) then
+        return false
+    end
+    if isPlayerDead() then return false end
+
+    local now = os.clock()
+    if now - LastEventActionAt < EVENT_STEP_DELAY then return false end
+
+    local container = DialogueContainer:FindFirstChild("Container")
+    if not container then return false end
+
+    -- 1. Check for "Continue" button on Options1 (Outcome screen)
+    local opt1 = container:FindFirstChild("Options1")
+    if opt1 and opt1.Visible then
+        local txtLbl = opt1:FindFirstChild("OptionText")
+        if txtLbl and txtLbl.Text:lower():find("continue") then
+            Log("EVENT", "Dismissing Event outcome (Continue)...", "#B0BEC5")
+            fireButtonClick(opt1)
+            LastEventActionAt = now
+            task.wait(EVENT_STEP_DELAY)
+            return true
+        end
+    end
+
+    -- 2. Identify active event name from GUI
+    local eventNameLbl = container:FindFirstChild("EventName")
+    local eventName = eventNameLbl and eventNameLbl.Text or "Unknown Event"
+
+    -- 3. Read available visible options
+    local optionVisible, optionGuaranteed, optionButtons = {}, {}, {}
+    for i = 1, 3 do
+        local optBtn = container:FindFirstChild("Options" .. i)
+        if optBtn and optBtn.Visible then
+            local descLbl = optBtn:FindFirstChild("OptionDesc")
+            local desc = (descLbl and descLbl.Text or ""):lower()
+
+            optionVisible[i] = true
+            optionButtons[i] = optBtn
+
+            local isRisky = desc:find("fail") or desc:find("chance") or desc:find("check") or desc:find("require")
+            optionGuaranteed[i] = not isRisky
+        else
+            optionVisible[i] = false
+            optionGuaranteed[i] = false
+        end
+    end
+
+    -- 4. Check Custom Choice first, then fallback to Strategy / Option 1
+    local chosenIndex = nil
+    local customChoice = getCustomChoiceForEvent(eventName)
+    
+    if customChoice and optionVisible[customChoice] then
+        chosenIndex = customChoice
+    else
+        chosenIndex = pickEventOption(optionVisible, optionGuaranteed)
+    end
+
+    if chosenIndex and optionButtons[chosenIndex] then
+        local btn = optionButtons[chosenIndex]
+        local titleLbl = btn:FindFirstChild("OptionText")
+        local title = titleLbl and titleLbl.Text or ("Option " .. chosenIndex)
+        local modeTag = (customChoice and chosenIndex == customChoice) and "Custom Config" or "Strategy Fallback"
+        
+        Log("EVENT", string.format("[%s] Option %d (%s): <font color='#B388FF'><b>%s</b></font>",
+            eventName, chosenIndex, modeTag, title), "#B388FF")
+            
+        fireButtonClick(btn)
+        LastEventActionAt = now
+        task.wait(EVENT_STEP_DELAY)
+        return true
+    end
+
+    return false
+end
+
+--=====================================================================
+-- SMART PATHING v2 [GUARDRAILS & GRAPH ENGINE]
+--=====================================================================
+local okNodeInfo, NodeInfoMod = pcall(function()
+    return require(ReplicatedStorage.ClientModules:WaitForChild("NodeInfo", 5))
+end)
+local NodeInfo = (okNodeInfo and type(NodeInfoMod) == "table") and NodeInfoMod or {}
+
+local ACTIVE_COLOR   = (NodeInfo.BackgroundColors and NodeInfo.BackgroundColors.Active)   or Color3.fromRGB(200, 200, 150)
+local INACTIVE_COLOR = (NodeInfo.BackgroundColors and NodeInfo.BackgroundColors.Inactive) or Color3.fromRGB(50, 50, 50)
+
+local IMAGE_TO_TYPE = {}
+if type(NodeInfo.Images) == "table" then
+    for nodeType, img in pairs(NodeInfo.Images) do IMAGE_TO_TYPE[img] = nodeType end
+end
+
+local NodeGraph, FinishedNodes, FurthestRow = {}, {}, 0
+
+local function laneOf(name)
+    local n = tostring(name):lower()
+    if n:find("upper", 1, true)  then return "Upper"  end
+    if n:find("lower", 1, true)  then return "Lower"  end
+    if n:find("center", 1, true) then return "Center" end
+    return "Any"
+end
+
+local function registerNode(name, data)
+    data = data or {}
+    local frame = DungeonNodeContainer:FindFirstChild(name)
+    local nodeType = data.NodeType
+    if type(nodeType) ~= "string" then
+        local img = frame and frame:FindFirstChild("NodeImage")
+        nodeType = (img and IMAGE_TO_TYPE[img.Image]) or nil
+    end
+
+    if not nodeType then
+        if name == "Boss" or name:find("Boss") then
+            nodeType = "Boss"
+        elseif name:find("Rest") then
+            nodeType = "Rest"
+        elseif name == "Start" or name:find("Start") then
+            nodeType = "EasyBattle"
+        elseif name:find("Lower") or name:find("Upper") or name:find("Center") then
+            nodeType = "Battle"
+        else
+            nodeType = "Event"
+        end
+    end
+
+    local pos = data.Position
+    local row = toNumber(data.RowToUnlock) or (frame and toNumber(frame:GetAttribute("Furthest"))) or 0
+
+    NodeGraph[name] = {
+        Name   = name,
+        Raw    = data,
+        Type   = nodeType or "Event",
+        Row    = row,
+        Parent = (type(data.LockedBy) == "string") and data.LockedBy or nil,
+        X      = (typeof(pos) == "UDim2") and pos.X.Scale or 0,
+        Y      = (typeof(pos) == "UDim2") and pos.Y.Scale or 0.5,
+        Lane   = laneOf(name),
+        Frame  = frame,
+    }
+end
+
+do
+    local drawInfo = Events:FindFirstChild("DrawNodeInfo")
+    if drawInfo then
+        drawInfo.OnClientEvent:Connect(function(map)
+            if type(map) ~= "table" then return end
+            if map["Start"] ~= nil then
+                NodeGraph, FinishedNodes, FurthestRow = {}, {}, 0
+            end
+            for name, data in pairs(map) do
+                if type(data) == "table" then registerNode(name, data) end
+            end
+        end)
+    end
+    local dist = Events:FindFirstChild("NodeDistIncrease")
+    if dist then
+        dist.OnClientEvent:Connect(function(furthest, finishedName)
+            FurthestRow = toNumber(furthest) or FurthestRow
+            if type(finishedName) == "string" and finishedName ~= "" then
+                FinishedNodes[finishedName] = true
+            end
+        end)
+    end
+    local firstDraw = Events:FindFirstChild("DrawNodesForFirstTime")
+    if firstDraw then
+        firstDraw.OnClientEvent:Connect(function(map, furthest)
+            FurthestRow = toNumber(furthest) or FurthestRow
+            if type(map) ~= "table" then return end
+            for name, data in pairs(map) do
+                if type(data) == "table" then
+                    registerNode(name, data)
+                    if data.HasBeenFinished then FinishedNodes[name] = true end
+                end
+            end
+        end)
+    end
+end
+
+local function refreshNodeFrames()
+    for _, frame in ipairs(DungeonNodeContainer:GetChildren()) do
+        if frame:IsA("Frame") and frame.Name ~= "Fog"
+            and (frame:FindFirstChild("Confirm") or frame:FindFirstChild("NodeImage")) then
+            local rec = NodeGraph[frame.Name]
+            if rec then
+                rec.Frame = frame
+                if rec.Row == 0 then rec.Row = toNumber(frame:GetAttribute("Furthest")) or rec.Row end
+            else
+                registerNode(frame.Name, {})
+            end
+        end
+    end
+end
+
+local function colorMatch(a, b)
+    local tol = 18 / 255
+    return math.abs(a.R - b.R) <= tol and math.abs(a.G - b.G) <= tol and math.abs(a.B - b.B) <= tol
+end
+
+----------------------------------------------------------------------
+-- STRICT GUARDRAIL NODE SELECTABILITY CHECK
+----------------------------------------------------------------------
+local function isNodeSelectable(rec)
+    if not rec then return false end
+    local name = rec.Name
+
+    if FinishedNodes[name] then return false end
+    if NODE_AVOID_USED and PlayerStats.DungeonNodes and PlayerStats.DungeonNodes[name] then
+        FinishedNodes[name] = true
+        return false
+    end
+
+    local curRow = FurthestRow
+    if toNumber(PlayerStats.FurthestNodeRow) then
+        curRow = math.max(curRow, toNumber(PlayerStats.FurthestNodeRow))
+    end
+    
+    if NODE_STRICT_ROW_LOCK and curRow > 0 then
+        if rec.Row ~= curRow then
+            return false
+        end
+    elseif curRow > 0 and rec.Row > curRow then
+        return false
+    end
+
+    if rec.Parent and PlayerStats.DungeonNodes and PlayerStats.DungeonNodes[rec.Parent] then
+        return false
+    end
+
+    local frame = rec.Frame or DungeonNodeContainer:FindFirstChild(name)
+    if not (frame and frame.Parent and frame.Visible) then return false end
+
+    local bg = frame:FindFirstChild("bg")
+    if bg and bg:IsA("GuiObject") then
+        local col = bg.BackgroundColor3
+        if colorMatch(col, INACTIVE_COLOR) or (col.R < 0.35 and col.G < 0.35 and col.B < 0.35) then
+            return false
+        end
+        if not (colorMatch(col, ACTIVE_COLOR) or (col.R > 0.5 and col.G > 0.5)) then
+            return false
+        end
+    end
+
+    if TransitionGui and TransitionGui.Enabled then return false end
+    if DialogueContainer and DialogueContainer.Visible then return false end
+    local restC = DungeonGui:FindFirstChild("RestContainer") or DungeonGui:FindFirstChild("RestFrame")
+    if restC and restC.Visible then return false end
+    local rewF = DungeonGui:FindFirstChild("RewardFrame")
+    if rewF and rewF.Visible then return false end
+    local bossF = DungeonGui:FindFirstChild("PickBossFrame")
+    if bossF and bossF.Visible then return false end
+
+    return true
+end
+
+local function getCandidateNodes()
+    refreshNodeFrames()
+    local list = {}
+    for _, rec in pairs(NodeGraph) do
+        if isNodeSelectable(rec) then table.insert(list, rec) end
+    end
+    if FurthestRow <= 0 and #list > 0 then
+        local minRow = math.huge
+        for _, r in ipairs(list) do minRow = math.min(minRow, r.Row) end
+        for i = #list, 1, -1 do
+            if list[i].Row > minRow then table.remove(list, i) end
+        end
+    end
+    table.sort(list, function(a, b) return a.Name < b.Name end)
+    return list
+end
+
+----------------------------------------------------------------------
+-- FORWARD PATH SIMULATION (DFS)
+----------------------------------------------------------------------
+local ChildrenOf, simMemo = {}, {}
+local EMPTY_FUTURE = { pos = 0, neg = 0, valuable = 0, raw = 0, via = nil }
+
+local function rebuildGraph()
+    ChildrenOf, simMemo = {}, {}
+    local parentless = {}
+    for _, rec in pairs(NodeGraph) do
+        if not FinishedNodes[rec.Name] then
+            if rec.Parent and NodeGraph[rec.Parent] and not FinishedNodes[rec.Parent] then
+                ChildrenOf[rec.Parent] = ChildrenOf[rec.Parent] or {}
+                table.insert(ChildrenOf[rec.Parent], rec)
+            else
+                table.insert(parentless, rec)
+            end
+        end
+    end
+    for _, rec in ipairs(parentless) do
+        local best, bestDist = nil, math.huge
+        for _, other in pairs(NodeGraph) do
+            if other ~= rec and other.Row == rec.Row - 1 and not FinishedNodes[other.Name] then
+                local d = math.abs(other.X - rec.X) + math.abs(other.Y - rec.Y)
+                if d < bestDist then best, bestDist = other, d end
+            end
+        end
+        if best then
+            ChildrenOf[best.Name] = ChildrenOf[best.Name] or {}
+            table.insert(ChildrenOf[best.Name], rec)
+        end
+    end
+end
+
+local function bestFutureFrom(name, depth)
+    depth = depth or SMART_SYNERGY.MAX_DEPTH
+    local key = name .. "@" .. depth
+    local memo = simMemo[key]
+    if memo then return memo end
+
+    local best = { pos = 0, neg = 0, valuable = 0, raw = 0, via = nil }
+    simMemo[key] = best
+
+    local kids = ChildrenOf[name]
+    if kids then
+        for _, kid in ipairs(kids) do
+            local w = SMART_PATH_WEIGHTS[kid.Type] or 0
+            local pos, neg, val = 0, 0, 0
+            if w >= 0 then
+                pos = w
+                if w >= SMART_SYNERGY.VALUABLE_MIN then val = 1 end
+            else
+                neg = w
+            end
+            local sub = (depth > 1) and bestFutureFrom(kid.Name, depth - 1) or EMPTY_FUTURE
+            local entry = {
+                pos = pos + sub.pos,
+                neg = neg + sub.neg,
+                valuable = val + sub.valuable,
+                via = kid.Name,
+                raw = 0,
+            }
+            entry.raw = entry.pos + entry.neg
+            if best.via == nil or entry.raw > best.raw
+                or (entry.raw == best.raw and entry.valuable > best.valuable) then
+                best = entry
+                simMemo[key] = best
+            end
+        end
+    end
+    return best
+end
+
+local function supportFactor(valuableCount)
+    if valuableCount >= SMART_SYNERGY.FULL_SUPPORT then return 1.0 end
+    if valuableCount == 1 then return SMART_SYNERGY.LONE_SUPPORT end
+    return 0.0
+end
+
+local function immediateScore(rec, hpPct)
+    local s = NODE_TYPE_PRIORITIES[rec.Type] or SMART_SYNERGY.UNKNOWN_TYPE
+    if rec.Type == "Rest" and hpPct <= EMERGENCY_REST_HP_PCT then
+        s = s + 600
+    elseif rec.Type == "Elite" and hpPct <= EMERGENCY_REST_HP_PCT then
+        s = s - 200
+    end
+    return s
+end
+
+local function branchBias(rec)
+    if PREFERRED_BRANCH == "Upper"  then return rec.Y end
+    if PREFERRED_BRANCH == "Lower"  then return -rec.Y end
+    if PREFERRED_BRANCH == "Center" then return math.abs(rec.Y - 0.5) end
+    return 0
+end
+
+local function describeFuture(name)
+    local hops, cur = {}, name
+    local depth = SMART_SYNERGY.MAX_DEPTH
+    for _ = 1, SMART_SYNERGY.MAX_DEPTH do
+        local s = simMemo[cur .. "@" .. depth]
+        if not s or not s.via then break end
+        cur = s.via
+        depth = depth - 1
+        local rec = NodeGraph[cur]
+        table.insert(hops, string.format("%s(%s)", cur, rec and rec.Type or "?"))
+    end
+    if #hops == 0 then return "end of mapped branch" end
+    return table.concat(hops, " > ")
+end
+
+local LastDecisionKey, LastDecisionLogAt = nil, 0
+local function shouldLogDecision(key)
+    local now = os.clock()
+    if key ~= LastDecisionKey or now - LastDecisionLogAt > 5 then
+        LastDecisionKey, LastDecisionLogAt = key, now
+        return true
+    end
+    return false
+end
+
+----------------------------------------------------------------------
+-- AUTO-NODE DECISION ENGINE
+----------------------------------------------------------------------
+local function AutoNodeThink()
+    if isPlayerDead() then return nil end
+
+    rebuildGraph()
+    local candidates = getCandidateNodes()
+    if #candidates == 0 then return nil end
+    if #candidates == 1 then return candidates[1] end
+
+    if PREFERRED_BRANCH ~= "Smart" then
+        table.sort(candidates, function(a, b)
+            local ba, bb = branchBias(a), branchBias(b)
+            if math.abs(ba - bb) > SMART_SYNERGY.LANE_TIEBREAK then return ba < bb end
+            local pa = NODE_TYPE_PRIORITIES[a.Type] or SMART_SYNERGY.UNKNOWN_TYPE
+            local pb = NODE_TYPE_PRIORITIES[b.Type] or SMART_SYNERGY.UNKNOWN_TYPE
+            if pa ~= pb then return pa > pb end
+            return a.Name < b.Name
+        end)
+        if shouldLogDecision(candidates[1].Name) then
+            Log("PATH", string.format("Branch [%s] -> %s (%s).",
+                PREFERRED_BRANCH, candidates[1].Name, candidates[1].Type), "#FFD54F")
+        end
+        return candidates[1]
+    end
+
+    local hpPct = currentHPPercent()
+    local scored = {}
+    for _, rec in ipairs(candidates) do
+        local sim    = bestFutureFrom(rec.Name, SMART_SYNERGY.MAX_DEPTH)
+        local factor = supportFactor(sim.valuable)
+        local imm    = immediateScore(rec, hpPct)
+        local future = (sim.pos * factor) + sim.neg
+        table.insert(scored, {
+            rec = rec,
+            sim = sim,
+            factor = factor,
+            imm = imm,
+            future = future,
+            total = imm + future
+        })
+    end
+
+    table.sort(scored, function(a, b)
+        if math.abs(a.total - b.total) > 0.01 then return a.total > b.total end
+        if a.imm ~= b.imm then return a.imm > b.imm end
+        local ba, bb = branchBias(a.rec), branchBias(b.rec)
+        if ba ~= bb then return ba < bb end
+        return a.rec.Name < b.rec.Name
+    end)
+
+    local winner = scored[1]
+    if shouldLogDecision(winner.rec.Name) then
+        if PATH_VERBOSE then
+            for i, s in ipairs(scored) do
+                Log("PATH", string.format("%s %s [%s] now %d + future %.1f (x%.2f) = <b>%.1f</b>",
+                    (i == 1) and ">>" or "  ", s.rec.Name, s.rec.Type,
+                    s.imm, s.future, s.factor, s.total),
+                    (i == 1) and "#2ECC71" or "#90A4AE")
+            end
+        end
+        if PATH_LOG_ROUTE then
+            Log("PATH", "Route: " .. describeFuture(winner.rec.Name), "#B388FF")
+        end
+        if winner.sim.valuable < SMART_SYNERGY.FULL_SUPPORT then
+            Log("PATH", string.format("Thin future (<%d valuable nodes ahead): Current node priority decided.",
+                SMART_SYNERGY.FULL_SUPPORT), "#FFD54F")
+        end
+    end
+    return winner.rec
+end
+
+----------------------------------------------------------------------
+-- EMBARK WITH COMPLETE VOTE & CONFIRM GUARDRAILS
+----------------------------------------------------------------------
+local LastEmbarkName, LastEmbarkAt = nil, 0
+local function embarkToNode(rec)
+    if isPlayerDead() then return false end
+    if not (rec and rec.Frame and rec.Frame.Parent) then return false end
+    
+    local now = os.clock()
+    if now - LastEmbarkAt < AUTO_NODE_DELAY then return false end
+    if LastEmbarkName == rec.Name and now - LastEmbarkAt < EMBARK_RETRY_COOLDOWN then return false end
+
+    if not isNodeSelectable(rec) then return false end
+
+    local confirmBtn = rec.Frame:FindFirstChild("Confirm")
+    if confirmBtn then
+        fireButtonClick(confirmBtn)
+    end
+
+    local voteEv = Events:FindFirstChild("VoteForNode")
+    if voteEv then
+        pcall(function() voteEv:FireServer(rec.Name) end)
+    else
+        local legacy = Events:FindFirstChild("NodeSelect")
+        if legacy then
+            pcall(function() legacy:FireServer(type(rec.Raw) == "table" and rec.Raw or rec.Name) end)
+        end
+    end
+
+    LastEmbarkName, LastEmbarkAt = rec.Name, now
+    Log("NODE", string.format("Embarking -> <font color='#CE93D8'><b>%s</b></font> (%s, Row: %d).",
+        rec.Name, rec.Type, rec.Row), "#2ECC71")
+    return true
+end
+
+--=====================================================================
+-- MASTER WORKER LOOPS
+--=====================================================================
+
+-- 1. Hardened Combat Worker Loop
+task.spawn(function()
+    while true do
+        task.wait(0.15)
+        if IsBotRunning and CombatMode > 0 and not isPlayerDead() then
+            local ok, err = pcall(processTurn)
+            if not ok then
+                Log("ERROR", tostring(err), "#EB4D4B")
+                task.wait(1)
+            end
+        end
+    end
+end)
+
+-- 2. Auto-Node, Rewards, Rest, Event, Boss Vote & Retry Master Loop
+task.spawn(function()
+    while true do
+        task.wait(NODE_SCAN_INTERVAL)
+
+        -- 1. Auto-Retry always checked first
+        local okRetry, resRetry = pcall(handleAutoRetry)
+        if not (okRetry and resRetry) then
+
+            -- 2. Boss Vote checked next
+            local okBoss, resBoss = pcall(handleAutoBossVote)
+            if not (okBoss and resBoss) then
+
+                -- 3. Standard run automation (active only when alive)
+                if IsAutoNodeRunning and AUTO_NODE_ENABLED and not isPlayerDead() then
+                    local inCombat = isInActiveCombat()
+                    local inTransition = TransitionGui and TransitionGui.Enabled
+
+                    if not inCombat and not inTransition then
+                        local handled = false
+
+                        -- Priority: Rewards -> Events -> Rest Sites -> Map Nodes
+                        local okRew, resRew = pcall(handleRewards)
+                        if okRew and resRew then handled = true end
+
+                        if not handled then
+                            local okEv, resEv = pcall(processAutoEvent)
+                            if okEv and resEv then handled = true end
+                        end
+
+                        if not handled then
+                            local okRest, resRest = pcall(handleRestSite)
+                            if okRest and resRest then handled = true end
+                        end
+
+                        if not handled then
+                            pcall(function()
+                                local target = AutoNodeThink()
+                                if not target then return end
+                                if BOSS_REQUIRES_MANUAL and target.Type == "Boss" then
+                                    if shouldLogDecision("BOSS_WAIT") then
+                                        Log("PATH", "Boss row reached — manual embark required.", "#FFD54F")
+                                    end
+                                    return
+                                end
+                                embarkToNode(target)
+                            end)
+                        end
+                    end
+                end
+            end
+        end
+    end
+end)
+
+-- 3. Run Timeout & Inactivity Watchdog Loop
+task.spawn(function()
+    while true do
+        task.wait(1.0)
+        if ENABLED_RUN_TIMEOUT and IsBotRunning and not isPlayerDead() then
+            local now = os.clock()
+            local runSeconds = getRunTimeInSeconds()
+
+            if RUN_TIMEOUT > 0 and runSeconds >= RUN_TIMEOUT then
+                Log("TIMEOUT", string.format("Run duration (%d s) exceeded RUN_TIMEOUT (%d s). Resetting player...", runSeconds, RUN_TIMEOUT), "#EB4D4B")
+                forcePlayerReset()
+                task.wait(3.0)
+            elseif ENABLED_INACTIVITY_TIMEOUT and INACTIVITY_TIMEOUT > 0 and (now - LastLogAt >= INACTIVITY_TIMEOUT) then
+                local inLoading = (LocalPlayer.PlayerGui:FindFirstChild("LoadingGui") and LocalPlayer.PlayerGui.LoadingGui.Enabled)
+                if not inLoading then
+                    Log("TIMEOUT", string.format("Inactivity detected (%d s without logs). Resetting player...", math.floor(now - LastLogAt)), "#EB4D4B")
+                    forcePlayerReset()
+                    task.wait(3.0)
+                end
+            end
+        end
+    end
+end)
