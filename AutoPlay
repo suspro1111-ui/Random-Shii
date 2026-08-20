@@ -1,6 +1,6 @@
 
 -- =====================================================================
--- AUTO-PLAY CORE 
+-- AUTO-PLAY CORE  (v1.0)
 -- =====================================================================
 
 local RawConfig = ... or {}
@@ -45,9 +45,9 @@ local Config = {
     MAX_ACTIONS_PER_TURN      = RawConfig.MAX_ACTIONS_PER_TURN or 12,
     END_TURN_COOLDOWN         = RawConfig.END_TURN_COOLDOWN or 1.0,
     ENCOUNTER_SYNC_TIMEOUT    = RawConfig.ENCOUNTER_SYNC_TIMEOUT or 8.0,
-    SYNC_LOG_THROTTLE         = RawConfig.SYNC_LOG_THROTTLE or 1.0,
-    SYNC_SETTLE_DELAY         = RawConfig.SYNC_SETTLE_DELAY or 0.2,
-    RESIST_CACHE_TIME         = RawConfig.RESIST_CACHE_TIME or 3.0,
+    SYNC_LOG_THROTTLE          = RawConfig.SYNC_LOG_THROTTLE or 1.0,
+    SYNC_SETTLE_DELAY          = RawConfig.SYNC_SETTLE_DELAY or 0.2,
+    RESIST_CACHE_TIME          = RawConfig.RESIST_CACHE_TIME or 3.0,
 
     -- [Node & Pathing ]
     NODE_SCAN_INTERVAL        = RawConfig.NODE_SCAN_INTERVAL or 0.4,
@@ -84,7 +84,7 @@ local Config = {
     AUTO_BOSS_VOTE_ENABLED     = (RawConfig.AUTO_BOSS_VOTE_ENABLED ~= nil) and RawConfig.AUTO_BOSS_VOTE_ENABLED or true,
     BOSS_VOTE_STRATEGY         = RawConfig.BOSS_VOTE_STRATEGY or "Priority",
     BOSS_VOTE_COOLDOWN         = RawConfig.BOSS_VOTE_COOLDOWN or 1.0,
-    BOSS_DEFAULT_PRIORITY      = RawConfig.BOSS_DEFAULT_PRIORITY or 10,
+    BOSS_DEFAULT_PRIORITY       = RawConfig.BOSS_DEFAULT_PRIORITY or 10,
     BOSS_PRIORITY_LIST         = RawConfig.BOSS_PRIORITY_LIST or {},
 
     -- [Safety & Failsafe Watchdogs]
@@ -210,7 +210,7 @@ Refs.endTurn              = Refs.Events:WaitForChild("EndTurn")
 Refs.clashPredictor       = Refs.Events:WaitForChild("ClashPredictor")
 
 -- =====================================================================
--- 3. NAMESPACED MODULES
+-- 3. NAMESPACED  MODULES
 -- =====================================================================
 local Utils   = {}
 local Acrylic = { Cleanups = {}, BlurInstances = {}, Folder = nil, DOF = nil, Enabled = Config.ACRYLIC.BlurEnabled }
@@ -219,8 +219,9 @@ local Combat  = {}
 local Dungeon = {}
 
 -- ---------------------------------------------------------------------
--- UTILITY
+-- UTILITY 
 -- ---------------------------------------------------------------------
+
 type Icon = {
     Url: string,
     Id: number,
@@ -1036,7 +1037,7 @@ function Combat.selectCardForEnemy(cardsInHand, targetEnemy, isOpposed)
 
     if targetEnemy.IsStaggered or targetEnemy.HandCount == 0 or not isOpposed then
         if targetEnemy.IsDefendingOrEvading and targetEnemy.HandCount > 0 and not targetEnemy.IsStaggered then
-            -- Clash calculation against defensive target
+            -- clash calculation
         else
             if #offensives > 0 then
                 local eRes = Combat.getUnitResistances(targetEnemy.UnitData)
@@ -1078,7 +1079,7 @@ function Combat.selectCardForEnemy(cardsInHand, targetEnemy, isOpposed)
         return bestNormal.Card
     end
 
-    -- Smart Threat-Gated E.G.O Solver
+    -- Smart Threat-Gated E.G.O Solver (Flat & PCT)
     if Config.AUTO_USE_EGO and (Config.EGO_USAGE_MODE == "Emergency" or Config.EGO_USAGE_MODE == "Always") then
         local currentPosture = Combat.getPlayerPosture() or 0
         local currentHp = Utils.toNumber(Refs.PlayerStats.Health) or 100
@@ -1429,357 +1430,8 @@ function Combat.isInActiveCombat(): boolean
 end
 
 -- ---------------------------------------------------------------------
--- DUNGEON AUTOMATION & RELIABLE PATHING
+-- DUNGEON AUTOMATION 
 -- ---------------------------------------------------------------------
-local okNodeInfo, NodeInfoMod = pcall(function()
-    return require(Services.ReplicatedStorage.ClientModules:WaitForChild("NodeInfo", 5))
-end)
-local NodeInfo = (okNodeInfo and type(NodeInfoMod) == "table") and NodeInfoMod or {}
-
-local ACTIVE_COLOR   = (NodeInfo.BackgroundColors and NodeInfo.BackgroundColors.Active)   or Color3.fromRGB(200, 200, 150)
-local INACTIVE_COLOR = (NodeInfo.BackgroundColors and NodeInfo.BackgroundColors.Inactive) or Color3.fromRGB(50, 50, 50)
-
-local IMAGE_TO_TYPE = {}
-if type(NodeInfo.Images) == "table" then
-    for nodeType, img in pairs(NodeInfo.Images) do IMAGE_TO_TYPE[img] = nodeType end
-end
-
-local function laneOf(name)
-    local n = tostring(name):lower()
-    if n:find("upper", 1, true)  then return "Upper"  end
-    if n:find("lower", 1, true)  then return "Lower"  end
-    if n:find("center", 1, true) then return "Center" end
-    return "Any"
-end
-
-function Dungeon.SyncState()
-    if Refs.PlayerStats then
-        if Refs.PlayerStats.FurthestNodeRow then
-            State.FurthestRow = math.max(State.FurthestRow, Utils.toNumber(Refs.PlayerStats.FurthestNodeRow) or 0)
-        end
-        if Refs.PlayerStats.DungeonNodes then
-            for k, v in pairs(Refs.PlayerStats.DungeonNodes) do
-                if v then State.FinishedNodes[k] = true end
-            end
-        end
-    end
-end
-
-local ChildrenOf, simMemo = {}, {}
-
-function Dungeon.RebuildGraphConnections()
-    ChildrenOf = {}
-    simMemo = {}
-    local parentless = {}
-    
-    for _, rec in pairs(State.NodeGraph) do
-        if not State.FinishedNodes[rec.Name] then
-            if rec.Parent and State.NodeGraph[rec.Parent] and not State.FinishedNodes[rec.Parent] then
-                ChildrenOf[rec.Parent] = ChildrenOf[rec.Parent] or {}
-                table.insert(ChildrenOf[rec.Parent], rec)
-            else
-                table.insert(parentless, rec)
-            end
-        end
-    end
-
-    -- Connect parentless nodes to the closest node in the previous row
-    for _, rec in ipairs(parentless) do
-        local best, bestDist = nil, math.huge
-        for _, other in pairs(State.NodeGraph) do
-            if other ~= rec and other.Row == rec.Row - 1 and not State.FinishedNodes[other.Name] then
-                local d = math.abs(other.X - rec.X) + math.abs(other.Y - rec.Y)
-                if d < bestDist then 
-                    best, bestDist = other, d 
-                end
-            end
-        end
-        if best then
-            ChildrenOf[best.Name] = ChildrenOf[best.Name] or {}
-            table.insert(ChildrenOf[best.Name], rec)
-        end
-    end
-end
-
-function Dungeon.registerNode(name, data)
-    data = data or {}
-    local frame = Refs.DungeonNodeContainer:FindFirstChild(name)
-    local nodeType = data.NodeType
-    if type(nodeType) ~= "string" then
-        local img = frame and frame:FindFirstChild("NodeImage")
-        nodeType = (img and IMAGE_TO_TYPE[img.Image]) or nil
-    end
-
-    if not nodeType then
-        if name == "Boss" or name:find("Boss") then nodeType = "Boss"
-        elseif name:find("Rest") then nodeType = "Rest"
-        elseif name == "Start" or name:find("Start") then nodeType = "EasyBattle"
-        elseif name:find("Lower") or name:find("Upper") or name:find("Center") then nodeType = "Battle"
-        else nodeType = "Event" end
-    end
-
-    local pos = data.Position or (frame and frame.Position)
-    local x, y = 0, 0.5
-    if typeof(pos) == "UDim2" then
-        x, y = pos.X.Scale, pos.Y.Scale
-    elseif typeof(pos) == "Vector2" then
-        x, y = pos.X, pos.Y
-    end
-
-    local row = Utils.toNumber(data.RowToUnlock) or (frame and Utils.toNumber(frame:GetAttribute("Furthest"))) or 0
-
-    State.NodeGraph[name] = {
-        Name   = name,
-        Raw    = data,
-        Type   = nodeType or "Event",
-        Row    = row,
-        Parent = (type(data.LockedBy) == "string") and data.LockedBy or nil,
-        X      = x,
-        Y      = y,
-        Lane   = laneOf(name),
-        Frame  = frame,
-    }
-end
-
-do
-    local drawInfo = Refs.Events:FindFirstChild("DrawNodeInfo")
-    if drawInfo then
-        drawInfo.OnClientEvent:Connect(function(map)
-            if type(map) ~= "table" then return end
-            if map["Start"] ~= nil then State.NodeGraph, State.FinishedNodes, State.FurthestRow = {}, {}, 0 end
-            for name, data in pairs(map) do if type(data) == "table" then Dungeon.registerNode(name, data) end end
-        end)
-    end
-    local dist = Refs.Events:FindFirstChild("NodeDistIncrease")
-    if dist then
-        dist.OnClientEvent:Connect(function(furthest, finishedName)
-            State.FurthestRow = Utils.toNumber(furthest) or State.FurthestRow
-            if type(finishedName) == "string" and finishedName ~= "" then State.FinishedNodes[finishedName] = true end
-        end)
-    end
-    local firstDraw = Refs.Events:FindFirstChild("DrawNodesForFirstTime")
-    if firstDraw then
-        firstDraw.OnClientEvent:Connect(function(map, furthest)
-            State.FurthestRow = Utils.toNumber(furthest) or State.FurthestRow
-            if type(map) ~= "table" then return end
-            for name, data in pairs(map) do
-                if type(data) == "table" then
-                    Dungeon.registerNode(name, data)
-                    if data.HasBeenFinished then State.FinishedNodes[name] = true end
-                end
-            end
-        end)
-    end
-end
-
-local function colorMatch(a, b)
-    local tol = 18 / 255
-    return math.abs(a.R - b.R) <= tol and math.abs(a.G - b.G) <= tol and math.abs(a.B - b.B) <= tol
-end
-
-function Dungeon.isNodeSelectable(rec)
-    if not rec then return false end
-    local name = rec.Name
-    if State.FinishedNodes[name] then return false end
-    
-    if Config.NODE_AVOID_USED and Refs.PlayerStats and Refs.PlayerStats.DungeonNodes and Refs.PlayerStats.DungeonNodes[name] then
-        State.FinishedNodes[name] = true
-        return false
-    end
-
-    local frame = rec.Frame or Refs.DungeonNodeContainer:FindFirstChild(name)
-    if not (frame and frame.Parent and frame.Visible) then return false end
-
-    local curRow = State.FurthestRow
-    local nodeRow = rec.Row
-    if nodeRow <= 0 and frame then
-        nodeRow = Utils.toNumber(frame:GetAttribute("Furthest")) or 0
-    end
-
-    if nodeRow < curRow then 
-        return false 
-    end
-
-    -- Block Selection if active transitional GUIs are on-screen
-    if Refs.TransitionGui and Refs.TransitionGui.Enabled then return false end
-    if Refs.DialogueContainer and Refs.DialogueContainer.Visible then return false end
-    
-    local restC = Refs.DungeonGui:FindFirstChild("RestContainer") or Refs.DungeonGui:FindFirstChild("RestFrame")
-    if restC and restC.Visible then return false end
-    
-    local rewF = Refs.DungeonGui:FindFirstChild("RewardFrame")
-    if rewF and rewF.Visible then return false end
-    
-    local bossF = Refs.DungeonGui:FindFirstChild("PickBossFrame")
-    if bossF and bossF.Visible then return false end
-
-    -- Wait until the current node being embarked is finished transitioning.
-    if Refs.DungeonNodeContainer:FindFirstChild("AreaConfirmer", true) then 
-        return false 
-    end
-
-    local bg = frame:FindFirstChild("bg")
-    if bg and bg:IsA("GuiObject") then
-        local col = bg.BackgroundColor3
-        if colorMatch(col, INACTIVE_COLOR) then 
-            return false 
-        end
-    end
-
-    return true
-end
-
-local EMPTY_FUTURE = { pos = 0, neg = 0, valuable = 0, raw = 0, via = nil }
-
-function Dungeon.bestFutureFrom(name, depth)
-    depth = depth or Config.SMART_SYNERGY.MAX_DEPTH
-    local key = name .. "@" .. depth
-    local memo = simMemo[key]
-    if memo then return memo end
-
-    local best = { pos = 0, neg = 0, valuable = 0, raw = 0, via = nil }
-    simMemo[key] = best
-
-    local kids = ChildrenOf[name]
-    if kids then
-        for _, kid in ipairs(kids) do
-            local w = Config.SMART_PATH_WEIGHTS[kid.Type] or 0
-            local pos, neg, val = 0, 0, 0
-            if w >= 0 then
-                pos = w
-                if w >= Config.SMART_SYNERGY.VALUABLE_MIN then val = 1 end
-            else
-                neg = w
-            end
-            local sub = (depth > 1) and Dungeon.bestFutureFrom(kid.Name, depth - 1) or EMPTY_FUTURE
-            local entry = {
-                pos = pos + sub.pos,
-                neg = neg + sub.neg,
-                valuable = val + sub.valuable,
-                via = kid.Name,
-                raw = pos + sub.pos + neg + sub.neg,
-            }
-            if best.via == nil or entry.raw > best.raw or (entry.raw == best.raw and entry.valuable > best.valuable) then
-                best = entry
-                simMemo[key] = best
-            end
-        end
-    end
-    return best
-end
-
-function Dungeon.AutoNodeThink()
-    if Utils.isPlayerDead() then return nil end
-
-    Dungeon.SyncState()
-
-    -- Refresh UI representations in the graph
-    for _, frame in ipairs(Refs.DungeonNodeContainer:GetChildren()) do
-        if frame:IsA("Frame") and frame.Name ~= "Fog" and (frame:FindFirstChild("Confirm") or frame:FindFirstChild("NodeImage")) then
-            local rec = State.NodeGraph[frame.Name]
-            if rec then
-                rec.Frame = frame
-                if rec.Row == 0 then rec.Row = Utils.toNumber(frame:GetAttribute("Furthest")) or rec.Row end
-            else
-                Dungeon.registerNode(frame.Name, {})
-            end
-        end
-    end
-
-    Dungeon.RebuildGraphConnections()
-
-    local candidates = {}
-    local minRow = math.huge
-
-    for _, rec in pairs(State.NodeGraph) do
-        if Dungeon.isNodeSelectable(rec) then
-            table.insert(candidates, rec)
-            if rec.Row < minRow then minRow = rec.Row end
-        end
-    end
-
-    -- Filter selection to the immediate next row to prevent sequence breaks
-    if #candidates > 0 then
-        for i = #candidates, 1, -1 do 
-            if candidates[i].Row > minRow then 
-                table.remove(candidates, i) 
-            end 
-        end
-    end
-
-    table.sort(candidates, function(a, b) return a.Name < b.Name end)
-
-    if #candidates == 0 then return nil end
-    if #candidates == 1 then return candidates[1] end
-
-    local hp = Utils.toNumber(Refs.PlayerStats.Health) or 100
-    local maxHp = Utils.toNumber(Refs.PlayerStats.MaxHealth) or hp
-    local hpPct = (maxHp > 0) and ((hp / maxHp) * 100) or 100
-
-    local scored = {}
-    for _, rec in ipairs(candidates) do
-        local sim = Dungeon.bestFutureFrom(rec.Name, Config.SMART_SYNERGY.MAX_DEPTH)
-        local factor = (sim.valuable >= Config.SMART_SYNERGY.FULL_SUPPORT and 1.0)
-            or (sim.valuable == 1 and Config.SMART_SYNERGY.LONE_SUPPORT) or 0.0
-        local imm = Config.NODE_TYPE_PRIORITIES[rec.Type] or Config.SMART_SYNERGY.UNKNOWN_TYPE
-        if rec.Type == "Rest" and hpPct <= Config.EMERGENCY_REST_HP_PCT then imm += 600
-        elseif rec.Type == "Elite" and hpPct <= Config.EMERGENCY_REST_HP_PCT then imm -= 200 end
-
-        local future = (sim.pos * factor) + sim.neg
-        table.insert(scored, { rec = rec, sim = sim, factor = factor, imm = imm, future = future, total = imm + future })
-    end
-
-    table.sort(scored, function(a, b)
-        if math.abs(a.total - b.total) > 0.01 then return a.total > b.total end
-        if a.imm ~= b.imm then return a.imm > b.imm end
-        return a.rec.Name < b.rec.Name
-    end)
-
-    local winner = scored[1]
-    local now = os.clock()
-    if winner.rec.Name ~= State.LastDecisionKey or now - State.LastDecisionLogAt > 5 then
-        State.LastDecisionKey, State.LastDecisionLogAt = winner.rec.Name, now
-        if Config.PATH_VERBOSE then
-            for i, s in ipairs(scored) do
-                UI.Log("PATH", string.format("%s %s [%s] now %d + future %.1f (x%.2f) = <b>%.1f</b>",
-                    (i == 1) and ">>" or "  ", s.rec.Name, s.rec.Type, s.imm, s.future, s.factor, s.total),
-                    (i == 1) and "#2ECC71" or "#90A4AE")
-            end
-        end
-    end
-    return winner.rec
-end
-
-function Dungeon.embarkToNode(rec)
-    if Utils.isPlayerDead() then return false end
-    if not (rec and rec.Frame and rec.Frame.Parent) then return false end
-
-    local now = os.clock()
-    if now - State.LastEmbarkAt < Config.AUTO_NODE_DELAY then return false end
-    if State.LastEmbarkName == rec.Name and now - State.LastEmbarkAt < Config.EMBARK_RETRY_COOLDOWN then return false end
-    if not Dungeon.isNodeSelectable(rec) then return false end
-
-    local confirmBtn = rec.Frame:FindFirstChild("Confirm")
-    if confirmBtn then 
-        Utils.fireButtonClick(confirmBtn)
-    else
-        local voteEv = Refs.Events:FindFirstChild("VoteForNode")
-        if voteEv then 
-            pcall(function() voteEv:FireServer(rec.Name) end)
-        else
-            local legacy = Refs.Events:FindFirstChild("NodeSelect")
-            if legacy then 
-                pcall(function() legacy:FireServer(type(rec.Raw) == "table" and rec.Raw or rec.Name) end) 
-            end
-        end
-    end
-
-    State.LastEmbarkName, State.LastEmbarkAt = rec.Name, now
-    UI.Log("NODE", string.format("Embarking -> <font color='#CE93D8'><b>%s</b></font> (%s, Row: %d).",
-        rec.Name, rec.Type, rec.Row), "#2ECC71")
-    return true
-end
-
 function Dungeon.handleAutoRetry()
     if not Config.AUTO_RETRY_ENABLED then return false end
     local finishGui = Refs.LocalPlayer.PlayerGui:FindFirstChild("FinishGui")
@@ -2110,6 +1762,302 @@ function Dungeon.processAutoEvent()
         return true
     end
     return false
+end
+
+-- ---------------------------------------------------------------------
+-- SMART PATHING & GRAPH DFS 
+-- ---------------------------------------------------------------------
+local okNodeInfo, NodeInfoMod = pcall(function()
+    return require(Services.ReplicatedStorage.ClientModules:WaitForChild("NodeInfo", 5))
+end)
+local NodeInfo = (okNodeInfo and type(NodeInfoMod) == "table") and NodeInfoMod or {}
+
+local ACTIVE_COLOR   = (NodeInfo.BackgroundColors and NodeInfo.BackgroundColors.Active)   or Color3.fromRGB(200, 200, 150)
+local INACTIVE_COLOR = (NodeInfo.BackgroundColors and NodeInfo.BackgroundColors.Inactive) or Color3.fromRGB(50, 50, 50)
+
+local IMAGE_TO_TYPE = {}
+if type(NodeInfo.Images) == "table" then
+    for nodeType, img in pairs(NodeInfo.Images) do IMAGE_TO_TYPE[img] = nodeType end
+end
+
+local function laneOf(name)
+    local n = tostring(name):lower()
+    if n:find("upper", 1, true)  then return "Upper"  end
+    if n:find("lower", 1, true)  then return "Lower"  end
+    if n:find("center", 1, true) then return "Center" end
+    return "Any"
+end
+
+function Dungeon.registerNode(name, data)
+    data = data or {}
+    local frame = Refs.DungeonNodeContainer:FindFirstChild(name)
+    local nodeType = data.NodeType
+    if type(nodeType) ~= "string" then
+        local img = frame and frame:FindFirstChild("NodeImage")
+        nodeType = (img and IMAGE_TO_TYPE[img.Image]) or nil
+    end
+
+    if not nodeType then
+        if name == "Boss" or name:find("Boss") then nodeType = "Boss"
+        elseif name:find("Rest") then nodeType = "Rest"
+        elseif name == "Start" or name:find("Start") then nodeType = "EasyBattle"
+        elseif name:find("Lower") or name:find("Upper") or name:find("Center") then nodeType = "Battle"
+        else nodeType = "Event" end
+    end
+
+    local pos = data.Position
+    local row = Utils.toNumber(data.RowToUnlock) or (frame and Utils.toNumber(frame:GetAttribute("Furthest"))) or 0
+
+    State.NodeGraph[name] = {
+        Name   = name,
+        Raw    = data,
+        Type   = nodeType or "Event",
+        Row    = row,
+        Parent = (type(data.LockedBy) == "string") and data.LockedBy or nil,
+        X      = (typeof(pos) == "UDim2") and pos.X.Scale or 0,
+        Y      = (typeof(pos) == "UDim2") and pos.Y.Scale or 0.5,
+        Lane   = laneOf(name),
+        Frame  = frame,
+    }
+end
+
+do
+    local drawInfo = Refs.Events:FindFirstChild("DrawNodeInfo")
+    if drawInfo then
+        drawInfo.OnClientEvent:Connect(function(map)
+            if type(map) ~= "table" then return end
+            if map["Start"] ~= nil then State.NodeGraph, State.FinishedNodes, State.FurthestRow = {}, {}, 0 end
+            for name, data in pairs(map) do if type(data) == "table" then Dungeon.registerNode(name, data) end end
+        end)
+    end
+    local dist = Refs.Events:FindFirstChild("NodeDistIncrease")
+    if dist then
+        dist.OnClientEvent:Connect(function(furthest, finishedName)
+            State.FurthestRow = Utils.toNumber(furthest) or State.FurthestRow
+            if type(finishedName) == "string" and finishedName ~= "" then State.FinishedNodes[finishedName] = true end
+        end)
+    end
+    local firstDraw = Refs.Events:FindFirstChild("DrawNodesForFirstTime")
+    if firstDraw then
+        firstDraw.OnClientEvent:Connect(function(map, furthest)
+            State.FurthestRow = Utils.toNumber(furthest) or State.FurthestRow
+            if type(map) ~= "table" then return end
+            for name, data in pairs(map) do
+                if type(data) == "table" then
+                    Dungeon.registerNode(name, data)
+                    if data.HasBeenFinished then State.FinishedNodes[name] = true end
+                end
+            end
+        end)
+    end
+end
+
+local function colorMatch(a, b)
+    local tol = 18 / 255
+    return math.abs(a.R - b.R) <= tol and math.abs(a.G - b.G) <= tol and math.abs(a.B - b.B) <= tol
+end
+
+function Dungeon.isNodeSelectable(rec)
+    if not rec then return false end
+    local name = rec.Name
+    if State.FinishedNodes[name] then return false end
+    if Config.NODE_AVOID_USED and Refs.PlayerStats.DungeonNodes and Refs.PlayerStats.DungeonNodes[name] then
+        State.FinishedNodes[name] = true
+        return false
+    end
+
+    local curRow = State.FurthestRow
+    if Utils.toNumber(Refs.PlayerStats.FurthestNodeRow) then
+        curRow = math.max(curRow, Utils.toNumber(Refs.PlayerStats.FurthestNodeRow))
+    end
+    if Config.NODE_STRICT_ROW_LOCK and curRow > 0 then
+        if rec.Row ~= curRow then return false end
+    elseif curRow > 0 and rec.Row > curRow then
+        return false
+    end
+
+    if rec.Parent and Refs.PlayerStats.DungeonNodes and Refs.PlayerStats.DungeonNodes[rec.Parent] then return false end
+
+    local frame = rec.Frame or Refs.DungeonNodeContainer:FindFirstChild(name)
+    if not (frame and frame.Parent and frame.Visible) then return false end
+
+    local bg = frame:FindFirstChild("bg")
+    if bg and bg:IsA("GuiObject") then
+        local col = bg.BackgroundColor3
+        if colorMatch(col, INACTIVE_COLOR) or (col.R < 0.35 and col.G < 0.35 and col.B < 0.35) then return false end
+        if not (colorMatch(col, ACTIVE_COLOR) or (col.R > 0.5 and col.G > 0.5)) then return false end
+    end
+
+    if Refs.TransitionGui and Refs.TransitionGui.Enabled then return false end
+    if Refs.DialogueContainer and Refs.DialogueContainer.Visible then return false end
+    local restC = Refs.DungeonGui:FindFirstChild("RestContainer") or Refs.DungeonGui:FindFirstChild("RestFrame")
+    if restC and restC.Visible then return false end
+    local rewF = Refs.DungeonGui:FindFirstChild("RewardFrame")
+    if rewF and rewF.Visible then return false end
+    local bossF = Refs.DungeonGui:FindFirstChild("PickBossFrame")
+    if bossF and bossF.Visible then return false end
+
+    return true
+end
+
+local ChildrenOf, simMemo = {}, {}
+local EMPTY_FUTURE = { pos = 0, neg = 0, valuable = 0, raw = 0, via = nil }
+
+function Dungeon.bestFutureFrom(name, depth)
+    depth = depth or Config.SMART_SYNERGY.MAX_DEPTH
+    local key = name .. "@" .. depth
+    local memo = simMemo[key]
+    if memo then return memo end
+
+    local best = { pos = 0, neg = 0, valuable = 0, raw = 0, via = nil }
+    simMemo[key] = best
+
+    local kids = ChildrenOf[name]
+    if kids then
+        for _, kid in ipairs(kids) do
+            local w = Config.SMART_PATH_WEIGHTS[kid.Type] or 0
+            local pos, neg, val = 0, 0, 0
+            if w >= 0 then
+                pos = w
+                if w >= Config.SMART_SYNERGY.VALUABLE_MIN then val = 1 end
+            else
+                neg = w
+            end
+            local sub = (depth > 1) and Dungeon.bestFutureFrom(kid.Name, depth - 1) or EMPTY_FUTURE
+            local entry = {
+                pos = pos + sub.pos,
+                neg = neg + sub.neg,
+                valuable = val + sub.valuable,
+                via = kid.Name,
+                raw = pos + sub.pos + neg + sub.neg,
+            }
+            if best.via == nil or entry.raw > best.raw or (entry.raw == best.raw and entry.valuable > best.valuable) then
+                best = entry
+                simMemo[key] = best
+            end
+        end
+    end
+    return best
+end
+
+function Dungeon.AutoNodeThink()
+    if Utils.isPlayerDead() then return nil end
+
+    -- Rebuild Graph
+    ChildrenOf, simMemo = {}, {}
+    local parentless = {}
+    for _, rec in pairs(State.NodeGraph) do
+        if not State.FinishedNodes[rec.Name] then
+            if rec.Parent and State.NodeGraph[rec.Parent] and not State.FinishedNodes[rec.Parent] then
+                ChildrenOf[rec.Parent] = ChildrenOf[rec.Parent] or {}
+                table.insert(ChildrenOf[rec.Parent], rec)
+            else
+                table.insert(parentless, rec)
+            end
+        end
+    end
+    for _, rec in ipairs(parentless) do
+        local best, bestDist = nil, math.huge
+        for _, other in pairs(State.NodeGraph) do
+            if other ~= rec and other.Row == rec.Row - 1 and not State.FinishedNodes[other.Name] then
+                local d = math.abs(other.X - rec.X) + math.abs(other.Y - rec.Y)
+                if d < bestDist then best, bestDist = other, d end
+            end
+        end
+        if best then
+            ChildrenOf[best.Name] = ChildrenOf[best.Name] or {}
+            table.insert(ChildrenOf[best.Name], rec)
+        end
+    end
+
+    -- Refresh & Get Candidates
+    for _, frame in ipairs(Refs.DungeonNodeContainer:GetChildren()) do
+        if frame:IsA("Frame") and frame.Name ~= "Fog" and (frame:FindFirstChild("Confirm") or frame:FindFirstChild("NodeImage")) then
+            local rec = State.NodeGraph[frame.Name]
+            if rec then
+                rec.Frame = frame
+                if rec.Row == 0 then rec.Row = Utils.toNumber(frame:GetAttribute("Furthest")) or rec.Row end
+            else
+                Dungeon.registerNode(frame.Name, {})
+            end
+        end
+    end
+
+    local candidates = {}
+    for _, rec in pairs(State.NodeGraph) do
+        if Dungeon.isNodeSelectable(rec) then table.insert(candidates, rec) end
+    end
+    if State.FurthestRow <= 0 and #candidates > 0 then
+        local minRow = math.huge
+        for _, r in ipairs(candidates) do minRow = math.min(minRow, r.Row) end
+        for i = #candidates, 1, -1 do if candidates[i].Row > minRow then table.remove(candidates, i) end end
+    end
+    table.sort(candidates, function(a, b) return a.Name < b.Name end)
+
+    if #candidates == 0 then return nil end
+    if #candidates == 1 then return candidates[1] end
+
+    local hp = Utils.toNumber(Refs.PlayerStats.Health) or 100
+    local maxHp = Utils.toNumber(Refs.PlayerStats.MaxHealth) or hp
+    local hpPct = (maxHp > 0) and ((hp / maxHp) * 100) or 100
+
+    local scored = {}
+    for _, rec in ipairs(candidates) do
+        local sim = Dungeon.bestFutureFrom(rec.Name, Config.SMART_SYNERGY.MAX_DEPTH)
+        local factor = (sim.valuable >= Config.SMART_SYNERGY.FULL_SUPPORT and 1.0)
+            or (sim.valuable == 1 and Config.SMART_SYNERGY.LONE_SUPPORT) or 0.0
+        local imm = Config.NODE_TYPE_PRIORITIES[rec.Type] or Config.SMART_SYNERGY.UNKNOWN_TYPE
+        if rec.Type == "Rest" and hpPct <= Config.EMERGENCY_REST_HP_PCT then imm += 600
+        elseif rec.Type == "Elite" and hpPct <= Config.EMERGENCY_REST_HP_PCT then imm -= 200 end
+
+        local future = (sim.pos * factor) + sim.neg
+        table.insert(scored, { rec = rec, sim = sim, factor = factor, imm = imm, future = future, total = imm + future })
+    end
+
+    table.sort(scored, function(a, b)
+        if math.abs(a.total - b.total) > 0.01 then return a.total > b.total end
+        if a.imm ~= b.imm then return a.imm > b.imm end
+        return a.rec.Name < b.rec.Name
+    end)
+
+    local winner = scored[1]
+    local now = os.clock()
+    if winner.rec.Name ~= State.LastDecisionKey or now - State.LastDecisionLogAt > 5 then
+        State.LastDecisionKey, State.LastDecisionLogAt = winner.rec.Name, now
+        if Config.PATH_VERBOSE then
+            for i, s in ipairs(scored) do
+                UI.Log("PATH", string.format("%s %s [%s] now %d + future %.1f (x%.2f) = <b>%.1f</b>",
+                    (i == 1) and ">>" or "  ", s.rec.Name, s.rec.Type, s.imm, s.future, s.factor, s.total),
+                    (i == 1) and "#2ECC71" or "#90A4AE")
+            end
+        end
+    end
+    return winner.rec
+end
+
+function Dungeon.embarkToNode(rec)
+    if Utils.isPlayerDead() then return false end
+    if not (rec and rec.Frame and rec.Frame.Parent) then return false end
+
+    local now = os.clock()
+    if now - State.LastEmbarkAt < Config.AUTO_NODE_DELAY then return false end
+    if State.LastEmbarkName == rec.Name and now - State.LastEmbarkAt < Config.EMBARK_RETRY_COOLDOWN then return false end
+    if not Dungeon.isNodeSelectable(rec) then return false end
+
+    local confirmBtn = rec.Frame:FindFirstChild("Confirm")
+    if confirmBtn then Utils.fireButtonClick(confirmBtn) end
+
+    local voteEv = Refs.Events:FindFirstChild("VoteForNode")
+    if voteEv then pcall(function() voteEv:FireServer(rec.Name) end)
+    else
+        local legacy = Refs.Events:FindFirstChild("NodeSelect")
+        if legacy then pcall(function() legacy:FireServer(type(rec.Raw) == "table" and rec.Raw or rec.Name) end) end
+    end
+
+    State.LastEmbarkName, State.LastEmbarkAt = rec.Name, now
+    UI.Log("NODE", string.format("Embarking -> <font color='#CE93D8'><b>%s</b></font> (%s, Row: %d).",
+        rec.Name, rec.Type, rec.Row), "#2ECC71")
+    return true
 end
 
 -- ---------------------------------------------------------------------
@@ -2537,6 +2485,7 @@ do
     makeDraggable(ConsoleFrame, Header)
     makeResizable(ConsoleFrame, ResizeBar, Config.UI_LAYOUT.MinConsoleSize, Config.UI_LAYOUT.MaxConsoleSize)
 
+    -- Real-time badge counter hooks
     local function updateCounterBadge()
         local count = 0
         for _, child in ipairs(LogScroll:GetChildren()) do
@@ -2576,6 +2525,7 @@ do
             entry.Text = string.format("<font color='#584E6D'>[%s]</font> <font color='%s'><b>[%s]</b> %s</font>", timeStamp, colorHex, tagOut, textOut)
             entry.Parent = LogScroll
 
+            -- Pruning
             local labels = {}
             for _, child in ipairs(LogScroll:GetChildren()) do
                 if child:IsA("TextLabel") then table.insert(labels, child) end
@@ -2675,14 +2625,14 @@ do
     updateCounterBadge()
     setConsoleVisibility(Config.UI_LAYOUT.ConsoleVisibleOnStart)
 
-    UI.Log("INIT", "Auto-Play v1.1 Loaded.", "#8A5CFF")
+    UI.Log("INIT", "Auto-Play v1 Loaded.", "#8A5CFF")
 end
 
 -- =====================================================================
 -- 4. MASTER WORKER LOOPS
 -- =====================================================================
 
--- [Worker 1: Combat Loop]
+-- [Worker 1: Hardened Combat Loop]
 task.spawn(function()
     while true do
         task.wait(0.15)
@@ -2696,12 +2646,12 @@ task.spawn(function()
     end
 end)
 
--- [Worker 2: Dungeon Exploration, Rewards, Events, Rest, Boss & Retry Loop]
+-- [Worker 2: Dungeon Navigation, Rewards, Events, Rest, Boss & Retry Loop]
 task.spawn(function()
     while true do
         task.wait(Config.NODE_SCAN_INTERVAL)
 
-        -- 1. Auto-Retry check
+        -- 1. Auto-Retry always checked first
         local okRetry, resRetry = pcall(Dungeon.handleAutoRetry)
         if not (okRetry and resRetry) then
 
@@ -2709,7 +2659,7 @@ task.spawn(function()
             local okBoss, resBoss = pcall(Dungeon.handleAutoBossVote)
             if not (okBoss and resBoss) then
 
-                -- 3. Exploration Automation
+                -- 3. Standard Exploration Automation
                 if State.IsAutoNodeRunning and Config.AUTO_NODE_ENABLED and not Utils.isPlayerDead() then
                     local inCombat = Combat.isInActiveCombat()
                     local inTransition = Refs.TransitionGui and Refs.TransitionGui.Enabled
