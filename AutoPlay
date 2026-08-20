@@ -367,6 +367,7 @@ function Utils.forcePlayerReset()
         if char then
             local hum = char:FindFirstChildOfClass("Humanoid")
             if hum then hum.Health = 0 else char:BreakJoints() end
+            Refs.Events.OnRunCompletion:FireServer(true)
         end
     end)
 end
