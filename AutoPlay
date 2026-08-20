@@ -273,7 +273,7 @@ local function GetCustomIcon(IconName: string): Icon?
     return GetIcon(IconName)
 end
 
-local function Utils.SetIcon(imageLabel: ImageLabel, iconName: string)
+function Utils.SetIcon(imageLabel: ImageLabel, iconName: string)
     if not (imageLabel and imageLabel:IsA("ImageLabel")) then return end
     local icon = GetCustomIcon(iconName)
     if icon then
