@@ -1413,7 +1413,13 @@ function Combat.processTurn()
 end
 
 function Combat.isInActiveCombat(): boolean
-    if not (Refs.CombatGui and Refs.CombatGui.Enabled) then return false end
+    -- If the Hand container is visible, we are definitely in combat
+    if Refs.HandContainer and Refs.HandContainer.Visible then return true end
+    
+    -- If DungeonGui is disabled, we are likely in combat or a transition
+    if Refs.DungeonGui and not Refs.DungeonGui.Enabled then return true end
+
+    -- If post-combat UIs are visible, combat has ended
     local rewardFrame = Refs.DungeonGui:FindFirstChild("RewardFrame")
     if rewardFrame and rewardFrame.Visible then return false end
     local dialogue = Refs.DungeonGui:FindFirstChild("DialogueContainer")
@@ -1423,10 +1429,7 @@ function Combat.isInActiveCombat(): boolean
     local pickBoss = Refs.DungeonGui:FindFirstChild("PickBossFrame")
     if pickBoss and pickBoss.Visible then return false end
 
-    local isTurn = Refs.LocalPlayer:GetAttribute("IsYourTurn") == true
-    local hasCards = Refs.HandContainer.Visible and #Refs.HandContainer:GetChildren() > 0
-    local hasEnemies = #Combat.getAliveEnemies() > 0
-    return (isTurn or hasCards) and hasEnemies
+    return false
 end
 
 -- ---------------------------------------------------------------------
