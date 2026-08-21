@@ -1,7 +1,6 @@
 
 -- =====================================================================
--- AUTO-PLAY CORE  (v1.2)
-
+-- AUTO-PLAY CORE  (v1.3 - Entity Differentiation & Posture Gating)
 -- =====================================================================
 
 local RawConfig = ... or {}
@@ -602,7 +601,7 @@ end
 local INTENT_DEF_WORDS = { evade = true, guard = true, defend = true, dodge = true }
 local CARD_DEF_WORDS = { evade = true, dodge = true, guard = true, defend = true, shield = true, rewind = true, counter = true }
 
-function Combat.parseCardData(rawCard, fallbackId)
+function Combat.parseCardData(rawCard, fallbackId, ownerId, slotIndex)
     if type(rawCard) ~= "table" then return nil end
 
     -- Safe table unwrapping for multi-enemy synced nested hands
@@ -677,8 +676,13 @@ function Combat.parseCardData(rawCard, fallbackId)
     for _, c in ipairs(coins) do if c.IsOffensive then offensiveCoins += 1 end end
     if #coins == 0 and not isDefense then offensiveCoins = 1 end
 
+    local cardUID = (ownerId and slotIndex) and string.format("%s_s%d_%s", tostring(ownerId), slotIndex, tostring(id)) or tostring(id)
+
     return {
         AttackId = tostring(id),
+        CardUID = cardUID,
+        OwnerId = ownerId,
+        SlotIndex = slotIndex or 1,
         Name = tostring(name),
         BasePower = basePower,
         MaxPower = basePower + bonusSum,
@@ -697,14 +701,15 @@ function Combat.parseCardData(rawCard, fallbackId)
     }
 end
 
--- Extracts all cards in an enemy's hand queue in chronological order
-function Combat.getEnemyCards(unitData)
+-- Extracts all cards in an enemy's hand queue in chronological order, tagged with OwnerId
+function Combat.getEnemyCards(unitData, ownerId)
     if type(unitData) ~= "table" or type(unitData.Hand) ~= "table" then return {} end
     local list = {}
     for k, rawCard in pairs(unitData.Hand) do
-        local parsed = Combat.parseCardData(rawCard)
+        local slotIdx = (type(k) == "number") and k or (#list + 1)
+        local parsed = Combat.parseCardData(rawCard, nil, ownerId, slotIdx)
         if parsed then
-            parsed.SlotIndex = (type(k) == "number") and k or (#list + 1)
+            parsed.SlotIndex = slotIdx
             table.insert(list, parsed)
         end
     end
@@ -713,20 +718,20 @@ function Combat.getEnemyCards(unitData)
 end
 
 -- Gets the specific card in an enemy's hand at a given slot index
-function Combat.getEnemyCardAt(unitData, slotIndex)
-    local cards = Combat.getEnemyCards(unitData)
+function Combat.getEnemyCardAt(unitData, slotIndex, ownerId)
+    local cards = Combat.getEnemyCards(unitData, ownerId)
     if #cards == 0 then return nil end
     slotIndex = slotIndex or 1
     return cards[slotIndex] or cards[#cards]
 end
 
-function Combat.getEnemyFirstCard(unitData)
-    return Combat.getEnemyCardAt(unitData, 1)
+function Combat.getEnemyFirstCard(unitData, ownerId)
+    return Combat.getEnemyCardAt(unitData, 1, ownerId)
 end
 
 function Combat.calculateEnemyIncomingDamage(targetEnemy, slotIndex): number
     if not targetEnemy or not targetEnemy.UnitData then return 0 end
-    local card = slotIndex and Combat.getEnemyCardAt(targetEnemy.UnitData, slotIndex) or Combat.getEnemyFirstCard(targetEnemy.UnitData)
+    local card = slotIndex and Combat.getEnemyCardAt(targetEnemy.UnitData, slotIndex, targetEnemy.Id) or Combat.getEnemyFirstCard(targetEnemy.UnitData, targetEnemy.Id)
     if not card then return 0 end
 
     local playerRes = Combat.getPlayerResistances()
@@ -749,7 +754,7 @@ function Combat.calculateEnemyIncomingDamage(targetEnemy, slotIndex): number
     return totalDamage
 end
 
-function Combat.estimateEnemyThreat(unitData)
+function Combat.estimateEnemyThreat(unitData, ownerId)
     local res = Combat.getPlayerResistances()
     local score, offensiveCards, scanned, topCard = 0, 0, 0, 0
     local profile = {}
@@ -758,7 +763,7 @@ function Combat.estimateEnemyThreat(unitData)
     if type(hand) ~= "table" then return 0, 0, 0, 0, profile end
 
     for _, rawCard in pairs(hand) do
-        local card = Combat.parseCardData(rawCard)
+        local card = Combat.parseCardData(rawCard, nil, ownerId)
         if card then
             scanned += 1
             if card.OffensiveCoinCount > 0 and not card.IsDefenseOrEvade then
@@ -841,7 +846,7 @@ function Combat.getEGOCards()
     if not (Refs.PlayerStats and type(Refs.PlayerStats.EGOHand) == "table") then return egoCards end
     for k, raw in pairs(Refs.PlayerStats.EGOHand) do
         local attackId = tostring(raw[3] or k)
-        local parsed = Combat.parseCardData(raw, attackId)
+        local parsed = Combat.parseCardData(raw, attackId, "Player")
         if parsed then
             parsed.Source = "EGO"
             table.insert(egoCards, parsed)
@@ -870,7 +875,7 @@ function Combat.getCardsInHand()
                 if attackId and not seen[tostring(attackId)] then
                     local raw, source = resolveRaw(attackId)
                     if raw then
-                        local parsed = Combat.parseCardData(raw, tostring(attackId))
+                        local parsed = Combat.parseCardData(raw, tostring(attackId), "Player")
                         if parsed then
                             parsed.Button = child
                             parsed.Source = source
@@ -890,7 +895,7 @@ function Combat.getCardsInHand()
         for k, raw in pairs(Refs.PlayerStats.Hand) do
             local attackId = tostring(raw[3] or k)
             if not seen[attackId] then
-                local parsed = Combat.parseCardData(raw, attackId)
+                local parsed = Combat.parseCardData(raw, attackId, "Player")
                 if parsed then
                     parsed.Source = "Hand"
                     seen[attackId] = true
@@ -902,27 +907,28 @@ function Combat.getCardsInHand()
     return cards
 end
 
--- Multi-Enemy Queue-Aware Analysis
+-- Robust UUID-First Multi-Enemy & Duplicate Clone Discovery
 function Combat.getAliveEnemies(timesTargetedMap)
     timesTargetedMap = timesTargetedMap or {}
     local enemies = {}
     local seenIds, seenModels = {}, {}
+    local nameCounts = {}
+
     local entitiesFolder = Services.Workspace:FindFirstChild("Entities")
         or Services.Workspace:FindFirstChild("BattleEntities")
         or Services.Workspace:FindFirstChild("Units")
 
     local function addEnemy(id, unitData, model, frame)
         if not id or id == "" or seenIds[id] then return end
+
         if not (model and model.Parent) then
-            if unitData and unitData.Model and unitData.Model.Parent then model = unitData.Model
+            if unitData and unitData.Model and unitData.Model.Parent then
+                model = unitData.Model
             elseif entitiesFolder then
-                model = entitiesFolder:FindFirstChild(id)
-                if not model then
-                    for _, child in ipairs(entitiesFolder:GetChildren()) do
-                        if child:IsA("Model") and (child:GetAttribute("id") == id or child.Name == id) then
-                            model = child
-                            break
-                        end
+                for _, child in ipairs(entitiesFolder:GetChildren()) do
+                    if child:IsA("Model") and (child:GetAttribute("id") == id or child.Name == id) then
+                        model = child
+                        break
                     end
                 end
             end
@@ -943,7 +949,7 @@ function Combat.getAliveEnemies(timesTargetedMap)
         local tempHealth = Utils.toNumber(unitData and unitData.TempHealth) or 0
         local speed = Utils.toNumber(unitData and unitData.Speed) or 0
 
-        local allCards = Combat.getEnemyCards(unitData)
+        local allCards = Combat.getEnemyCards(unitData, id)
         local handCount, handKnown = #allCards, (unitData and type(unitData.Hand) == "table")
         if not handKnown and frame then
             local holder = frame:FindFirstChild("CardsInHand")
@@ -957,7 +963,7 @@ function Combat.getAliveEnemies(timesTargetedMap)
         local nextSlotIndex = targetedCount + 1
         local nextCard = allCards[nextSlotIndex]
 
-        -- Compute remaining unaddressed threats from the active slot onward
+        -- Compute unaddressed threats starting from this specific enemy's active slot
         local unaddressedThreats = 0
         local nextSlotScore = 0
         local remainingThreatScore = 0
@@ -967,7 +973,7 @@ function Combat.getAliveEnemies(timesTargetedMap)
                 local c = allCards[idx]
                 if c and not c.IsDefenseOrEvade and c.OffensiveCoinCount > 0 then
                     unaddressedThreats += 1
-                    local score = Combat.calculateEnemyIncomingDamage({ UnitData = unitData }, idx)
+                    local score = Combat.calculateEnemyIncomingDamage({ UnitData = unitData, Id = id }, idx)
                     remainingThreatScore += score
                     if idx == nextSlotIndex then
                         nextSlotScore = score
@@ -980,11 +986,12 @@ function Combat.getAliveEnemies(timesTargetedMap)
         seenModels[model] = true
 
         local rawName = (unitData and unitData.DisplayName) or model:GetAttribute("DisplayName") or model.Name
+        nameCounts[rawName] = (nameCounts[rawName] or 0) + 1
         local shortId = tostring(id):sub(1, 6)
 
         table.insert(enemies, {
             Id = id,
-            Name = string.format("%s [%s]", rawName, shortId),
+            Name = string.format("%s #%d [%s]", rawName, nameCounts[rawName], shortId),
             DisplayName = rawName,
             UnitData = unitData,
             Model = model,
@@ -1007,21 +1014,46 @@ function Combat.getAliveEnemies(timesTargetedMap)
         })
     end
 
-    if entitiesFolder then
-        for _, ent in ipairs(entitiesFolder:GetChildren()) do
-            if ent:IsA("Model") and ent ~= Refs.LocalPlayer.Character and not Services.Players:GetPlayerFromCharacter(ent) then
-                local mId = ent:GetAttribute("id") or ent.Name
-                local uData = Refs.CachedBattleUnits[mId] or Refs.CachedBattleUnits[ent.Name]
-                local frame = Refs.EnemyContainer:FindFirstChild(mId)
-                addEnemy(mId, uData, ent, frame)
-            end
+    -- 1. Scan CachedBattleUnits directly by distinct UUID keys
+    for uuid, uData in pairs(Refs.CachedBattleUnits) do
+        if type(uData) == "table" then
+            local frame = Refs.EnemyContainer:FindFirstChild(uuid)
+            addEnemy(uuid, uData, uData.Model, frame)
         end
     end
 
+    -- 2. Scan EnemyContainer frames
     for _, frame in ipairs(Refs.EnemyContainer:GetChildren()) do
-        if frame:IsA("Frame") and frame.Name ~= "" then
+        if frame:IsA("Frame") and frame.Name ~= "" and not seenIds[frame.Name] then
             local uData = Refs.CachedBattleUnits[frame.Name]
             addEnemy(frame.Name, uData, uData and uData.Model, frame)
+        end
+    end
+
+    -- 3. Scan Workspace Entities with reverse model lookup
+    if entitiesFolder then
+        for _, ent in ipairs(entitiesFolder:GetChildren()) do
+            if ent:IsA("Model") and ent ~= Refs.LocalPlayer.Character and not Services.Players:GetPlayerFromCharacter(ent) then
+                if not seenModels[ent] then
+                    local matchedId = ent:GetAttribute("id")
+                    local matchedUData = nil
+
+                    if not matchedId then
+                        for uuid, uData in pairs(Refs.CachedBattleUnits) do
+                            if uData and uData.Model == ent then
+                                matchedId = uuid
+                                matchedUData = uData
+                                break
+                            end
+                        end
+                    end
+
+                    matchedId = matchedId or ent.Name
+                    matchedUData = matchedUData or Refs.CachedBattleUnits[matchedId]
+                    local frame = Refs.EnemyContainer:FindFirstChild(matchedId)
+                    addEnemy(matchedId, matchedUData, ent, frame)
+                end
+            end
         end
     end
 
@@ -1081,7 +1113,7 @@ function Combat.selectCardForEnemy(cardsInHand, targetEnemy, isOpposed, targetSl
     if #cardsInHand == 0 then return nil end
     targetSlotIndex = targetSlotIndex or 1
 
-    local targetCard = Combat.getEnemyCardAt(targetEnemy.UnitData, targetSlotIndex)
+    local targetCard = Combat.getEnemyCardAt(targetEnemy.UnitData, targetSlotIndex, targetEnemy.Id)
     local isTargetSlotDefensive = targetCard and targetCard.IsDefenseOrEvade or false
 
     local offensives, defenses = {}, {}
@@ -1186,8 +1218,8 @@ function Combat.selectCardForEnemy(cardsInHand, targetEnemy, isOpposed, targetSl
                         or (isPctThreat and string.format("%.1f%% Max HP", incomingPct)
                         or string.format("%d Dmg", math.floor(incomingDamage)))
 
-                    UI.Log("EGO", string.format("Threat (%s from Slot #%d) -> Deployed E.G.O: <font color='#FFD54F'><b>%s</b></font> [<b>%s</b>]!",
-                        threatTag, targetSlotIndex, bestEGO.Card.Name, bestEGO.Verdict), "#FFD54F")
+                    UI.Log("EGO", string.format("Threat (%s from %s Slot #%d) -> Deployed E.G.O: <font color='#FFD54F'><b>%s</b></font> [<b>%s</b>]!",
+                        threatTag, targetEnemy.Name, targetSlotIndex, bestEGO.Card.Name, bestEGO.Verdict), "#FFD54F")
                     return bestEGO.Card
                 end
             end
@@ -1226,7 +1258,7 @@ function Combat.tryEndTurn()
     end
 end
 
--- Multi-Enemy Orchestrated Combat Turn
+-- Multi-Enemy Orchestrated Combat Turn with Low Posture Gating for Extra Attacks
 function Combat.processTurn()
     if Utils.isPlayerDead() then return end
     if not (Refs.LocalPlayer:GetAttribute("IsYourTurn") and Refs.CombatGui.Enabled) then return end
@@ -1322,7 +1354,7 @@ function Combat.processTurn()
                 if #available == 0 then
                     turnDone = true
                 else
-                    -- Sum unaddressed threats across all enemies
+                    -- Calculate remaining unaddressed offensive threats across all enemies
                     local totalThreatsLeft = 0
                     for _, enemy in ipairs(enemies) do
                         totalThreatsLeft += (enemy.UnaddressedThreats or 0)
@@ -1332,27 +1364,25 @@ function Combat.processTurn()
                     local isOpposed = false
 
                     if State.CombatMode == 1 then
-                        -- SAFE MODE: Multi-Target Balanced Interception
+                        -- SAFE MODE
                         if totalThreatsLeft > 0 then
+                            -- [PHASE 1: THREAT NEUTRALIZATION]
+                            -- Mandatory clashes to protect player from taking unopposed damage
                             table.sort(enemies, function(a, b)
                                 local aT = a.UnaddressedThreats or 0
                                 local bT = b.UnaddressedThreats or 0
 
-                                -- 1. Enemies with remaining unaddressed threats come first
                                 if (aT > 0) ~= (bT > 0) then return aT > 0 end
 
                                 if aT > 0 and bT > 0 then
-                                    -- 2. Immediate direct attacks take priority over enemies currently on guard
                                     local aImm = not a.IsNextSlotDefensive
                                     local bImm = not b.IsNextSlotDefensive
                                     if aImm ~= bImm then return aImm end
 
-                                    -- 3. Prioritize higher immediate damage threat
                                     if a.NextThreatScore ~= b.NextThreatScore then
                                         return a.NextThreatScore > b.NextThreatScore
                                     end
 
-                                    -- 4. Tiebreak by Speed
                                     if Config.THREAT_TIEBREAK_SPEED and a.Speed ~= b.Speed then
                                         return a.Speed > b.Speed
                                     end
@@ -1364,40 +1394,61 @@ function Combat.processTurn()
                             chosenEnemy = enemies[1]
                             isOpposed = (chosenEnemy.UnaddressedThreats > 0) or (chosenEnemy.HandCount >= chosenEnemy.NextSlotIndex and not chosenEnemy.IsStaggered)
                         else
-                            -- All threats neutralized: maximize unopposed damage
-                            local hasOffense, strongest = false, 0
-                            for _, c in ipairs(available) do
-                                if not c.IsDefenseOrEvade then
-                                    hasOffense = true
-                                    if c.MaxPower > strongest then strongest = c.MaxPower end
-                                end
-                            end
-
-                            local posture = Combat.getPlayerPosture()
-                            if posture and posture < Config.LOW_POSTURE_LIMIT then
+                            -- [PHASE 2: SPARE / EXTRA ATTACKS]
+                            -- Posture Gating strictly enforced here so resources are conserved
+                            local currentPosture = Combat.getPlayerPosture() or 100
+                            if currentPosture <= Config.LOW_POSTURE_LIMIT then
+                                UI.Log("POSTURE", string.format("Posture (%d) reached Low Posture Limit (%d). Halting extra attacks to conserve resources.",
+                                    math.floor(currentPosture), Config.LOW_POSTURE_LIMIT), "#FFD54F")
                                 turnDone = true
-                            elseif hasOffense then
-                                local killLine = strongest * Config.KILL_MARGIN
-                                table.sort(enemies, function(a, b)
-                                    if Config.TARGET_STAGGERED_FIRST and a.IsStaggered ~= b.IsStaggered then return a.IsStaggered end
-                                    if Config.TARGET_KILLABLE_FIRST then
-                                        local aK, bK = a.EffectiveHP <= killLine, b.EffectiveHP <= killLine
-                                        if aK ~= bK then return aK end
-                                    end
-                                    if a.EffectiveHP ~= b.EffectiveHP then return a.EffectiveHP < b.EffectiveHP end
-                                    return a.Id < b.Id
-                                end)
-                                chosenEnemy = enemies[1]
-                                isOpposed = chosenEnemy.HandCount >= chosenEnemy.NextSlotIndex and not chosenEnemy.IsStaggered
-                            elseif Config.PLAY_LEFTOVER_EVADES then
-                                chosenEnemy = enemies[1]
-                                isOpposed = false
                             else
-                                turnDone = true
+                                -- Filter available cards to those that don't violate LOW_POSTURE_LIMIT
+                                local affordableCards = {}
+                                for _, c in ipairs(available) do
+                                    local cost = c.Cost or 0
+                                    if not c.IsDefenseOrEvade and (currentPosture - cost) >= Config.LOW_POSTURE_LIMIT then
+                                        table.insert(affordableCards, c)
+                                    end
+                                end
+
+                                if #affordableCards == 0 then
+                                    if Config.PLAY_LEFTOVER_EVADES then
+                                        for _, c in ipairs(available) do
+                                            if c.IsDefenseOrEvade and c.DefenseKind == "Evade" then
+                                                table.insert(affordableCards, c)
+                                            end
+                                        end
+                                    end
+                                end
+
+                                if #affordableCards == 0 then
+                                    UI.Log("POSTURE", string.format("No spare attacks affordable without dropping below Low Posture Limit (%d). Ending turn.",
+                                        Config.LOW_POSTURE_LIMIT), "#B0BEC5")
+                                    turnDone = true
+                                else
+                                    local strongest = 0
+                                    for _, c in ipairs(affordableCards) do
+                                        if c.MaxPower > strongest then strongest = c.MaxPower end
+                                    end
+
+                                    local killLine = strongest * Config.KILL_MARGIN
+                                    table.sort(enemies, function(a, b)
+                                        if Config.TARGET_STAGGERED_FIRST and a.IsStaggered ~= b.IsStaggered then return a.IsStaggered end
+                                        if Config.TARGET_KILLABLE_FIRST then
+                                            local aK, bK = a.EffectiveHP <= killLine, b.EffectiveHP <= killLine
+                                            if aK ~= bK then return aK end
+                                        end
+                                        if a.EffectiveHP ~= b.EffectiveHP then return a.EffectiveHP < b.EffectiveHP end
+                                        return a.Id < b.Id
+                                    end)
+                                    chosenEnemy = enemies[1]
+                                    isOpposed = chosenEnemy.HandCount >= chosenEnemy.NextSlotIndex and not chosenEnemy.IsStaggered
+                                    available = affordableCards
+                                end
                             end
                         end
                     else
-                        -- AGGRO MODE: Focus Fire or Raw Priority
+                        -- AGGRO MODE
                         if Config.AGGRO_FOCUS_FIRE and FocusTargetId then
                             for _, e in ipairs(enemies) do if e.Id == FocusTargetId then chosenEnemy = e break end end
                         end
@@ -2686,7 +2737,7 @@ do
     updateCounterBadge()
     setConsoleVisibility(Config.UI_LAYOUT.ConsoleVisibleOnStart)
 
-    UI.Log("INIT", "Auto-Play v1.2 Loaded.", "#8A5CFF")
+    UI.Log("INIT", "Auto-Play v1.3 Loaded.", "#8A5CFF")
 end
 
 -- =====================================================================
