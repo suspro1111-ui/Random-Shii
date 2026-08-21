@@ -1,6 +1,6 @@
 
 -- =====================================================================
--- AUTO-PLAY CORE  (v1.0)
+-- AUTO-PLAY CORE  (v1.1)
 -- =====================================================================
 
 local RawConfig = ... or {}
@@ -45,9 +45,9 @@ local Config = {
     MAX_ACTIONS_PER_TURN      = RawConfig.MAX_ACTIONS_PER_TURN or 12,
     END_TURN_COOLDOWN         = RawConfig.END_TURN_COOLDOWN or 1.0,
     ENCOUNTER_SYNC_TIMEOUT    = RawConfig.ENCOUNTER_SYNC_TIMEOUT or 8.0,
-    SYNC_LOG_THROTTLE          = RawConfig.SYNC_LOG_THROTTLE or 1.0,
-    SYNC_SETTLE_DELAY          = RawConfig.SYNC_SETTLE_DELAY or 0.2,
-    RESIST_CACHE_TIME          = RawConfig.RESIST_CACHE_TIME or 3.0,
+    SYNC_LOG_THROTTLE         = RawConfig.SYNC_LOG_THROTTLE or 1.0,
+    SYNC_SETTLE_DELAY         = RawConfig.SYNC_SETTLE_DELAY or 0.2,
+    RESIST_CACHE_TIME         = RawConfig.RESIST_CACHE_TIME or 3.0,
 
     -- [Node & Pathing ]
     NODE_SCAN_INTERVAL        = RawConfig.NODE_SCAN_INTERVAL or 0.4,
@@ -84,7 +84,7 @@ local Config = {
     AUTO_BOSS_VOTE_ENABLED     = (RawConfig.AUTO_BOSS_VOTE_ENABLED ~= nil) and RawConfig.AUTO_BOSS_VOTE_ENABLED or true,
     BOSS_VOTE_STRATEGY         = RawConfig.BOSS_VOTE_STRATEGY or "Priority",
     BOSS_VOTE_COOLDOWN         = RawConfig.BOSS_VOTE_COOLDOWN or 1.0,
-    BOSS_DEFAULT_PRIORITY       = RawConfig.BOSS_DEFAULT_PRIORITY or 10,
+    BOSS_DEFAULT_PRIORITY      = RawConfig.BOSS_DEFAULT_PRIORITY or 10,
     BOSS_PRIORITY_LIST         = RawConfig.BOSS_PRIORITY_LIST or {},
 
     -- [Safety & Failsafe Watchdogs]
@@ -210,7 +210,7 @@ Refs.endTurn              = Refs.Events:WaitForChild("EndTurn")
 Refs.clashPredictor       = Refs.Events:WaitForChild("ClashPredictor")
 
 -- =====================================================================
--- 3. NAMESPACED  MODULES
+-- 3. NAMESPACED MODULES
 -- =====================================================================
 local Utils   = {}
 local Acrylic = { Cleanups = {}, BlurInstances = {}, Folder = nil, DOF = nil, Enabled = Config.ACRYLIC.BlurEnabled }
@@ -691,16 +691,36 @@ function Combat.parseCardData(rawCard, fallbackId)
     }
 end
 
-function Combat.getEnemyFirstCard(unitData)
-    if type(unitData) ~= "table" or type(unitData.Hand) ~= "table" then return nil end
-    return unitData.Hand[1] or select(2, next(unitData.Hand))
+-- Extracts all cards in an enemy's hand queue in chronological order
+function Combat.getEnemyCards(unitData)
+    if type(unitData) ~= "table" or type(unitData.Hand) ~= "table" then return {} end
+    local list = {}
+    for k, rawCard in pairs(unitData.Hand) do
+        local parsed = Combat.parseCardData(rawCard)
+        if parsed then
+            parsed.SlotIndex = (type(k) == "number") and k or (#list + 1)
+            table.insert(list, parsed)
+        end
+    end
+    table.sort(list, function(a, b) return (a.SlotIndex or 0) < (b.SlotIndex or 0) end)
+    return list
 end
 
-function Combat.calculateEnemyIncomingDamage(targetEnemy): number
+-- Gets the specific card in an enemy's hand at a given slot index
+function Combat.getEnemyCardAt(unitData, slotIndex)
+    local cards = Combat.getEnemyCards(unitData)
+    if #cards == 0 then return nil end
+    slotIndex = slotIndex or 1
+    return cards[slotIndex] or cards[#cards]
+end
+
+function Combat.getEnemyFirstCard(unitData)
+    return Combat.getEnemyCardAt(unitData, 1)
+end
+
+function Combat.calculateEnemyIncomingDamage(targetEnemy, slotIndex): number
     if not targetEnemy or not targetEnemy.UnitData then return 0 end
-    local firstCard = Combat.getEnemyFirstCard(targetEnemy.UnitData)
-    if not firstCard then return 0 end
-    local card = Combat.parseCardData(firstCard)
+    local card = slotIndex and Combat.getEnemyCardAt(targetEnemy.UnitData, slotIndex) or Combat.getEnemyFirstCard(targetEnemy.UnitData)
     if not card then return 0 end
 
     local playerRes = Combat.getPlayerResistances()
@@ -717,7 +737,9 @@ function Combat.calculateEnemyIncomingDamage(targetEnemy): number
         end
     end
 
-    if totalDamage <= 0 and card.MaxPower > 0 then totalDamage = card.MaxPower end
+    if totalDamage <= 0 and card.MaxPower > 0 and not card.IsDefenseOrEvade then
+        totalDamage = card.MaxPower
+    end
     return totalDamage
 end
 
@@ -729,11 +751,11 @@ function Combat.estimateEnemyThreat(unitData)
     local hand = unitData and unitData.Hand
     if type(hand) ~= "table" then return 0, 0, 0, 0, profile end
 
-    for _, rawCard in ipairs(hand) do
+    for _, rawCard in pairs(hand) do
         local card = Combat.parseCardData(rawCard)
         if card then
             scanned += 1
-            if card.OffensiveCoinCount > 0 then
+            if card.OffensiveCoinCount > 0 and not card.IsDefenseOrEvade then
                 offensiveCards += 1
                 local cardScore = 0
                 for _, coin in ipairs(card.Coins) do
@@ -915,7 +937,8 @@ function Combat.getAliveEnemies()
 
         local handCount, handKnown = 0, false
         if unitData and type(unitData.Hand) == "table" then
-            handCount, handKnown = #unitData.Hand, true
+            for _ in pairs(unitData.Hand) do handCount += 1 end
+            handKnown = true
         elseif frame then
             local holder = frame:FindFirstChild("CardsInHand")
             local label = holder and holder:FindFirstChild("Label")
@@ -924,15 +947,21 @@ function Combat.getAliveEnemies()
         end
 
         local staggered = Combat.isEnemyStaggered(unitData, model)
-        local first = Combat.getEnemyFirstCard(unitData)
-        local defending = (not staggered) and handKnown and handCount > 0 and (first and (Combat.parseCardData(first) or {}).IsDefenseOrEvade or false)
+        local allCards = Combat.getEnemyCards(unitData)
+        local firstCard = allCards[1]
+        local isFirstCardDefensive = (not staggered) and (firstCard and firstCard.IsDefenseOrEvade or false)
 
         local threatScore, offensiveCards, scanned, topCard, profile = 0, handCount, 0, 0, {}
         if handKnown and handCount > 0 then
             threatScore, offensiveCards, scanned, topCard, profile = Combat.estimateEnemyThreat(unitData)
             if scanned == 0 then offensiveCards = handCount end
         end
-        if staggered or defending then offensiveCards = 0 end
+
+        -- Staggered units have 0 threat, but defending units STILL have threats behind their shield
+        if staggered then
+            offensiveCards = 0
+            threatScore = 0
+        end
 
         seenIds[id] = true
         seenModels[model] = true
@@ -956,7 +985,7 @@ function Combat.getAliveEnemies()
             EffectiveHP = health + tempHealth,
             Speed = speed,
             IsStaggered = staggered,
-            IsDefendingOrEvading = defending,
+            IsDefendingOrEvading = isFirstCardDefensive,
             OffensiveThreats = offensiveCards,
             ThreatScore = threatScore,
             TopCardThreat = topCard,
@@ -985,9 +1014,30 @@ function Combat.getAliveEnemies()
     return enemies
 end
 
-function Combat.evaluateClash(cardObj, enemy)
+function Combat.evaluateClash(cardObj, enemy, enemyCard)
     if not enemy or enemy.IsStaggered or (enemy.HandKnown and enemy.HandCount == 0) then
         return 5, cardObj.MaxPower, nil, "Unopposed"
+    end
+
+    -- If we have an exact target card object for this slot, simulate mathematically
+    if enemyCard then
+        local pBase = cardObj.BasePower
+        local pMax = cardObj.MaxPower
+        local eBase = enemyCard.BasePower
+        local eMax = enemyCard.MaxPower
+        local diff = pMax - eMax
+
+        if pBase > eMax then
+            return 5, 1000 + diff, nil, "Certain Victory"
+        elseif diff > Config.CLASH_OVERWHELM_SCORE then
+            return 4, 500 + diff, nil, "Overwhelming Advantage"
+        elseif diff > Config.CLASH_ADVANTAGE_SCORE then
+            return 3, 200 + diff, nil, "Advantaged"
+        elseif diff >= Config.CLASH_RISKY_SCORE then
+            return 2, 50 + diff, nil, "Risky"
+        else
+            return 1, diff, nil, "Desperate/Hopeless"
+        end
     end
 
     local prediction = nil
@@ -1012,8 +1062,13 @@ function Combat.evaluateClash(cardObj, enemy)
     return 3, cardObj.MaxPower, nil, "No Prediction"
 end
 
-function Combat.selectCardForEnemy(cardsInHand, targetEnemy, isOpposed)
+-- Multi-Slot Aware Selection
+function Combat.selectCardForEnemy(cardsInHand, targetEnemy, isOpposed, targetSlotIndex)
     if #cardsInHand == 0 then return nil end
+    targetSlotIndex = targetSlotIndex or 1
+
+    local targetCard = Combat.getEnemyCardAt(targetEnemy.UnitData, targetSlotIndex)
+    local isTargetSlotDefensive = targetCard and targetCard.IsDefenseOrEvade or false
 
     local offensives, defenses = {}, {}
     for _, card in ipairs(cardsInHand) do
@@ -1035,10 +1090,9 @@ function Combat.selectCardForEnemy(cardsInHand, targetEnemy, isOpposed)
     local canDefend = (#defenses > Config.KEEP_DEFENSE_RESERVE)
     local safe = canDefend and ((Config.PREFER_EVADE_OVER_GUARD and (bestEvade or bestDefense)) or (bestDefense or bestEvade)) or nil
 
+    -- 1. Unopposed / Staggered Target
     if targetEnemy.IsStaggered or targetEnemy.HandCount == 0 or not isOpposed then
-        if targetEnemy.IsDefendingOrEvading and targetEnemy.HandCount > 0 and not targetEnemy.IsStaggered then
-            -- clash calculation
-        else
+        if not isTargetSlotDefensive then
             if #offensives > 0 then
                 local eRes = Combat.getUnitResistances(targetEnemy.UnitData)
                 local chosen, chosenDmg = offensives[1], -1
@@ -1055,14 +1109,19 @@ function Combat.selectCardForEnemy(cardsInHand, targetEnemy, isOpposed)
         end
     end
 
-    if targetEnemy.IsDefendingOrEvading then
+    -- 2. Target slot is a Guard/Evade (Bait slot 1 without wasting strongest cards)
+    if isTargetSlotDefensive then
+        UI.Log("THINK", string.format("Target %s Slot #%d is Defensive (<font color='#CE93D8'>%s</font>). Baiting/resolving...",
+            targetEnemy.Name, targetSlotIndex, targetCard.Name), "#90A4AE")
         if canDefend and bestDefense then return bestDefense end
-        if #offensives > 0 then return offensives[#offensives] end
+        if #offensives > 0 then return offensives[#offensives] end -- play lowest offensive to pop guard
+        return safe or bestDefense
     end
 
+    -- 3. Target slot is an Active Attack (Even if behind previous guards!)
     local scored = {}
     for _, card in ipairs(offensives) do
-        local rank, score, _, verdict = Combat.evaluateClash(card, targetEnemy)
+        local rank, score, _, verdict = Combat.evaluateClash(card, targetEnemy, targetCard)
         table.insert(scored, { Card = card, Rank = rank, Score = score, Verdict = verdict })
     end
 
@@ -1074,19 +1133,19 @@ function Combat.selectCardForEnemy(cardsInHand, targetEnemy, isOpposed)
     local bestNormal = scored[1]
 
     if bestNormal and bestNormal.Rank > Config.DEFENSE_SWAP_MAX_RANK then
-        UI.Log("PREDICT", string.format("Clash vs %s -> <font color='#B388FF'>%s</font> [<b>%s</b>, Score: %d].",
-            targetEnemy.Name, bestNormal.Card.Name, bestNormal.Verdict, math.floor(bestNormal.Score)), "#2ECC71")
+        UI.Log("PREDICT", string.format("Clash vs %s (Slot #%d: %s) -> <font color='#B388FF'>%s</font> [<b>%s</b>, Score: %d].",
+            targetEnemy.Name, targetSlotIndex, targetCard and targetCard.Name or "Attack", bestNormal.Card.Name, bestNormal.Verdict, math.floor(bestNormal.Score)), "#2ECC71")
         return bestNormal.Card
     end
 
-    -- Smart Threat-Gated E.G.O Solver (Flat & PCT)
+    -- Threat-Gated E.G.O Solver for Active Attack Slot
     if Config.AUTO_USE_EGO and (Config.EGO_USAGE_MODE == "Emergency" or Config.EGO_USAGE_MODE == "Always") then
         local currentPosture = Combat.getPlayerPosture() or 0
         local currentHp = Utils.toNumber(Refs.PlayerStats.Health) or 100
         local maxHp = Utils.toNumber(Refs.PlayerStats.MaxHealth) or currentHp
 
         if currentPosture >= Config.EGO_MIN_POSTURE_LIMIT then
-            local incomingDamage = Combat.calculateEnemyIncomingDamage(targetEnemy)
+            local incomingDamage = Combat.calculateEnemyIncomingDamage(targetEnemy, targetSlotIndex)
             local incomingPct = (maxHp > 0) and ((incomingDamage / maxHp) * 100) or 0
 
             local isLethalRisk = Config.EGO_USE_ON_LETHAL and (incomingDamage >= currentHp)
@@ -1098,7 +1157,7 @@ function Combat.selectCardForEnemy(cardsInHand, targetEnemy, isOpposed)
                 local egoScored = {}
 
                 for _, egoCard in ipairs(egoCards) do
-                    local rank, score, _, verdict = Combat.evaluateClash(egoCard, targetEnemy)
+                    local rank, score, _, verdict = Combat.evaluateClash(egoCard, targetEnemy, targetCard)
                     table.insert(egoScored, { Card = egoCard, Rank = rank, Score = score, Verdict = verdict })
                 end
 
@@ -1113,23 +1172,20 @@ function Combat.selectCardForEnemy(cardsInHand, targetEnemy, isOpposed)
                         or (isPctThreat and string.format("%.1f%% Max HP", incomingPct)
                         or string.format("%d Dmg", math.floor(incomingDamage)))
 
-                    UI.Log("EGO", string.format("Threat (%s) -> Deployed E.G.O: <font color='#FFD54F'><b>%s</b></font> [<b>%s</b>]!",
-                        threatTag, bestEGO.Card.Name, bestEGO.Verdict), "#FFD54F")
+                    UI.Log("EGO", string.format("Threat (%s from Slot #%d) -> Deployed E.G.O: <font color='#FFD54F'><b>%s</b></font> [<b>%s</b>]!",
+                        threatTag, targetSlotIndex, bestEGO.Card.Name, bestEGO.Verdict), "#FFD54F")
                     return bestEGO.Card
                 end
-            else
-                UI.Log("THINK", string.format("Enemy attack is low threat (~%d Dmg, %.1f%% HP). Conserving E.G.O...",
-                    math.floor(incomingDamage), incomingPct), "#B0BEC5")
             end
         end
     end
 
     if bestNormal then
-        UI.Log("PREDICT", string.format("Clash vs %s -> <font color='#B388FF'>%s</font> [<b>%s</b>, Score: %d].",
-            targetEnemy.Name, bestNormal.Card.Name, bestNormal.Verdict, math.floor(bestNormal.Score)), "#EB4D4B")
+        UI.Log("PREDICT", string.format("Clash vs %s (Slot #%d: %s) -> <font color='#B388FF'>%s</font> [<b>%s</b>, Score: %d].",
+            targetEnemy.Name, targetSlotIndex, targetCard and targetCard.Name or "Attack", bestNormal.Card.Name, bestNormal.Verdict, math.floor(bestNormal.Score)), "#EB4D4B")
 
         if safe then
-            UI.Log("DEFENSE", string.format("Clash unsafe. Conserving E.G.O -> Defensive: <font color='#CE93D8'>%s</font>.", safe.Name), "#BA68C8")
+            UI.Log("DEFENSE", string.format("Clash unsafe vs %s. Defensive: <font color='#CE93D8'>%s</font>.", targetEnemy.Name, safe.Name), "#BA68C8")
             return safe
         end
         return bestNormal.Card
@@ -1296,7 +1352,7 @@ function Combat.processTurn()
                                 return a.Id < b.Id
                             end)
                             chosenEnemy = enemies[1]
-                            isOpposed = (pendingThreats[chosenEnemy.Id] or 0) > 0 and chosenEnemy.HandCount > 0 and not chosenEnemy.IsStaggered
+                            isOpposed = chosenEnemy.HandCount > 0 and not chosenEnemy.IsStaggered
                         else
                             local hasOffense, strongest = false, 0
                             for _, c in ipairs(available) do
@@ -1352,11 +1408,13 @@ function Combat.processTurn()
                     elseif chosenEnemy.Model:GetAttribute("Untargetable") or chosenEnemy.Health <= 0 then
                         turnDone = true
                     else
-                        timesTargeted[chosenEnemy.Id] = (timesTargeted[chosenEnemy.Id] or 0) + 1
+                        local targetSlot = (timesTargeted[chosenEnemy.Id] or 0) + 1
+                        timesTargeted[chosenEnemy.Id] = targetSlot
+
                         pcall(function() Refs.LockOnSystem.setLockOn(chosenEnemy.Model, chosenEnemy.UnitData) end)
                         task.wait(Config.ACTION_DELAY)
 
-                        local cardToPlay = Combat.selectCardForEnemy(available, chosenEnemy, isOpposed)
+                        local cardToPlay = Combat.selectCardForEnemy(available, chosenEnemy, isOpposed, targetSlot)
                         if not cardToPlay or playedThisTurn[cardToPlay.AttackId] then
                             turnDone = true
                         else
@@ -1374,8 +1432,8 @@ function Combat.processTurn()
                                 Refs.LocalPlayer:SetAttribute("Active", true)
                                 actionsThisTurn += 1
 
-                                UI.Log("EXEC", string.format("Playing <font color='#B388FF'><b>%s</b></font> on %s...",
-                                    cardToPlay.Name, chosenEnemy.Name), "#B388FF")
+                                UI.Log("EXEC", string.format("Playing <font color='#B388FF'><b>%s</b></font> vs %s [Slot #%d]...",
+                                    cardToPlay.Name, chosenEnemy.Name, targetSlot), "#B388FF")
 
                                 if cardToPlay.Source == "EGO" then
                                     Refs.playEGOAttack:FireServer(cardToPlay.RawData.Name or cardToPlay.Name, cardToPlay.AttackId, targetId)
@@ -1413,13 +1471,9 @@ function Combat.processTurn()
 end
 
 function Combat.isInActiveCombat(): boolean
-    -- If the Hand container is visible, we are definitely in combat
     if Refs.HandContainer and Refs.HandContainer.Visible then return true end
-    
-    -- If DungeonGui is disabled, we are likely in combat or a transition
     if Refs.DungeonGui and not Refs.DungeonGui.Enabled then return true end
 
-    -- If post-combat UIs are visible, combat has ended
     local rewardFrame = Refs.DungeonGui:FindFirstChild("RewardFrame")
     if rewardFrame and rewardFrame.Visible then return false end
     local dialogue = Refs.DungeonGui:FindFirstChild("DialogueContainer")
@@ -1946,7 +2000,6 @@ end
 function Dungeon.AutoNodeThink()
     if Utils.isPlayerDead() then return nil end
 
-    -- Rebuild Graph
     ChildrenOf, simMemo = {}, {}
     local parentless = {}
     for _, rec in pairs(State.NodeGraph) do
@@ -1973,7 +2026,6 @@ function Dungeon.AutoNodeThink()
         end
     end
 
-    -- Refresh & Get Candidates
     for _, frame in ipairs(Refs.DungeonNodeContainer:GetChildren()) do
         if frame:IsA("Frame") and frame.Name ~= "Fog" and (frame:FindFirstChild("Confirm") or frame:FindFirstChild("NodeImage")) then
             local rec = State.NodeGraph[frame.Name]
@@ -2488,7 +2540,6 @@ do
     makeDraggable(ConsoleFrame, Header)
     makeResizable(ConsoleFrame, ResizeBar, Config.UI_LAYOUT.MinConsoleSize, Config.UI_LAYOUT.MaxConsoleSize)
 
-    -- Real-time badge counter hooks
     local function updateCounterBadge()
         local count = 0
         for _, child in ipairs(LogScroll:GetChildren()) do
@@ -2528,7 +2579,6 @@ do
             entry.Text = string.format("<font color='#584E6D'>[%s]</font> <font color='%s'><b>[%s]</b> %s</font>", timeStamp, colorHex, tagOut, textOut)
             entry.Parent = LogScroll
 
-            -- Pruning
             local labels = {}
             for _, child in ipairs(LogScroll:GetChildren()) do
                 if child:IsA("TextLabel") then table.insert(labels, child) end
@@ -2628,7 +2678,7 @@ do
     updateCounterBadge()
     setConsoleVisibility(Config.UI_LAYOUT.ConsoleVisibleOnStart)
 
-    UI.Log("INIT", "Auto-Play v1 Loaded.", "#8A5CFF")
+    UI.Log("INIT", "Auto-Play v1.1 Loaded.", "#8A5CFF")
 end
 
 -- =====================================================================
@@ -2654,15 +2704,10 @@ task.spawn(function()
     while true do
         task.wait(Config.NODE_SCAN_INTERVAL)
 
-        -- 1. Auto-Retry always checked first
         local okRetry, resRetry = pcall(Dungeon.handleAutoRetry)
         if not (okRetry and resRetry) then
-
-            -- 2. Boss Vote
             local okBoss, resBoss = pcall(Dungeon.handleAutoBossVote)
             if not (okBoss and resBoss) then
-
-                -- 3. Standard Exploration Automation
                 if State.IsAutoNodeRunning and Config.AUTO_NODE_ENABLED and not Utils.isPlayerDead() then
                     local inCombat = Combat.isInActiveCombat()
                     local inTransition = Refs.TransitionGui and Refs.TransitionGui.Enabled
@@ -2670,7 +2715,6 @@ task.spawn(function()
                     if not inCombat and not inTransition then
                         local handled = false
 
-                        -- Priority: Rewards -> Events -> Rest Sites -> Map Nodes
                         local okRew, resRew = pcall(Dungeon.handleRewards)
                         if okRew and resRew then handled = true end
 
