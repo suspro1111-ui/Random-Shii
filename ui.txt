@@ -1,0 +1,877 @@
+
+
+local UIManager = {}
+
+-- ---------------------------------------------------------------------
+-- 1. CONFIGURATION & THEME PRESETS
+-- ---------------------------------------------------------------------
+UIManager.Config = {
+    MAX_LOG_LINES         = 50,
+    RICH_TEXT_PASSTHROUGH = true,
+    ACRYLIC = {
+        BlurEnabled      = true,
+        Distance         = 0.4,                          -- Sits in visible near range (was 0.001 inside clip plane)
+        FocusDistance    = 2.0,                          -- DOF focus plane: keep world sharp
+        InFocusRadius    = 1.5,                          -- Veil sits outside focus region to engage near-blur
+        VeilColor        = Color3.fromRGB(96, 72, 148),  -- Frosted purple tint
+        VeilTransparency = 0.45,                         -- Must be <= 0.50 for Roblox Glass refraction to render
+    },
+    UI_LAYOUT = {
+        ToolbarAnchorPoint    = Vector2.new(0.5, 0),
+        ToolbarPosition       = UDim2.new(0.5, 0, 0, 8),
+        ToolbarSize           = UDim2.new(0, 430, 0, 40),
+        ConsolePosition       = UDim2.new(0.63, 0, 0.16, 0),
+        ConsoleSize           = UDim2.new(0, 450, 0, 260),
+        MinConsoleSize        = Vector2.new(340, 180),
+        MaxConsoleSize        = Vector2.new(850, 650),
+        ConsoleVisibleOnStart = true,
+        LogFont               = Enum.Font.RobotoMono,
+        LogTextSize           = 11,
+    },
+    THEME = {
+        AcrylicMain     = Color3.fromRGB(20, 14, 32),
+        AcrylicGradient = ColorSequence.new({
+            ColorSequenceKeypoint.new(0, Color3.fromRGB(150, 100, 255)),
+            ColorSequenceKeypoint.new(1, Color3.fromRGB(35, 18, 55)),
+        }),
+        AcrylicBorder   = Color3.fromRGB(185, 155, 255),
+        AcrylicNoise    = 0.90,
+        Glass           = Color3.fromRGB(20, 14, 30),
+        GlassAlt        = Color3.fromRGB(32, 22, 50),
+        GlassDeep       = Color3.fromRGB(13, 9, 22),
+        GlassTint       = 0.38,
+        WellTint        = 0.28,
+        EdgeLight       = Color3.fromRGB(215, 195, 255),
+        Accent          = Color3.fromRGB(138, 92, 255),
+        AccentSoft      = Color3.fromRGB(175, 140, 255),
+        Text            = Color3.fromRGB(242, 240, 252),
+        Muted           = Color3.fromRGB(165, 155, 188),
+        SubMuted        = Color3.fromRGB(115, 102, 138),
+        Good            = Color3.fromRGB(46, 204, 113),
+        Warn            = Color3.fromRGB(241, 154, 38),
+        Bad             = Color3.fromRGB(235, 77, 75),
+
+        -- Liquid Glass Rim: bright top/bottom specular reflection
+        RimGradient     = ColorSequence.new({
+            ColorSequenceKeypoint.new(0.00, Color3.fromRGB(255, 251, 255)),
+            ColorSequenceKeypoint.new(0.28, Color3.fromRGB(198, 166, 255)),
+            ColorSequenceKeypoint.new(0.55, Color3.fromRGB(96, 70, 158)),
+            ColorSequenceKeypoint.new(0.80, Color3.fromRGB(150, 118, 220)),
+            ColorSequenceKeypoint.new(1.00, Color3.fromRGB(243, 232, 255)),
+        }),
+        RimRotation          = 90,
+        RimThickness         = 1.6,
+        RimTransparency      = 0.08,
+        InnerRimColor        = Color3.fromRGB(255, 255, 255),
+        InnerRimTransparency = 0.86,
+    }
+}
+
+local Services = {
+    Players          = game:GetService("Players"),
+    UserInputService = game:GetService("UserInputService"),
+    CoreGui          = game:GetService("CoreGui"),
+    Workspace        = game:GetService("Workspace"),
+    Lighting         = game:GetService("Lighting"),
+    TweenService     = game:GetService("TweenService"),
+}
+
+local LocalPlayer = Services.Players.LocalPlayer
+local LogIndex = 0
+
+-- ---------------------------------------------------------------------
+-- 2. ICON PROVIDER
+-- ---------------------------------------------------------------------
+type Icon = {
+    Url: string,
+    Id: number,
+    IconName: string,
+    ImageRectOffset: Vector2,
+    ImageRectSize: Vector2,
+}
+
+local FetchIcons, Icons = pcall(function()
+    return (loadstring(
+        game:HttpGet("https://raw.githubusercontent.com/mstudio45/lucide-roblox-direct/refs/heads/main/source.lua")
+    ) :: () -> any)()
+end)
+
+local function GetCustomIcon(IconName: string): Icon?
+    if not IconName then return nil end
+    if tonumber(IconName) then
+        IconName = string.format("rbxassetid://%s", tostring(IconName))
+    end
+    if typeof(IconName) == "string" and (IconName:match("^content://") or IconName:match("^rbxasset://") or IconName:match("^rbxassetid://") or IconName:match("roblox%.com/asset/%?id=")) then
+        return {
+            Url = IconName,
+            Id = 0,
+            IconName = IconName,
+            ImageRectOffset = Vector2.zero,
+            ImageRectSize = Vector2.zero,
+        }
+    end
+    if FetchIcons and Icons then
+        local Success, Icon = pcall(Icons.GetAsset, IconName)
+        if Success and typeof(Icon) == "table" then return Icon end
+    end
+    return nil
+end
+
+function UIManager.SetIcon(imageLabel: ImageLabel, iconName: string)
+    if not (imageLabel and imageLabel:IsA("ImageLabel")) then return end
+    local icon = GetCustomIcon(iconName)
+    if icon then
+        imageLabel.Image = icon.Url or ""
+        imageLabel.ImageRectOffset = icon.ImageRectOffset or Vector2.zero
+        imageLabel.ImageRectSize = icon.ImageRectSize or Vector2.zero
+    else
+        imageLabel.Image = ""
+        imageLabel.ImageRectOffset = Vector2.zero
+        imageLabel.ImageRectSize = Vector2.zero
+    end
+end
+
+-- ---------------------------------------------------------------------
+-- 3. ACRYLIC BLUR SYSTEM
+-- ---------------------------------------------------------------------
+local Acrylic = { Cleanups = {}, BlurInstances = {}, Folder = nil, DOF = nil, Enabled = UIManager.Config.ACRYLIC.BlurEnabled }
+
+local function mapRange(v, inMin, inMax, outMin, outMax)
+    return (v - inMin) * (outMax - outMin) / (inMax - inMin) + outMin
+end
+
+local function viewportPointToWorld(location, distance)
+    local camera = Services.Workspace.CurrentCamera
+    if not camera then return Vector3.zero end
+    local unitRay = camera:ScreenPointToRay(location.X, location.Y)
+    return unitRay.Origin + unitRay.Direction * distance
+end
+
+local function getCameraOffset()
+    local camera = Services.Workspace.CurrentCamera
+    local viewportSizeY = camera and camera.ViewportSize.Y or 1080
+    return math.clamp(mapRange(viewportSizeY, 0, 2560, 2, 8), 2, 8)
+end
+
+function Acrylic.Init()
+    local camera = Services.Workspace.CurrentCamera
+    if not camera then return end
+
+    if Acrylic.Folder and Acrylic.Folder.Parent then Acrylic.Folder:Destroy() end
+    local folder = Instance.new("Folder")
+    folder.Name = "StandaloneAcrylicBlur"
+    folder.Parent = camera
+    Acrylic.Folder = folder
+
+    pcall(function()
+        local stale = Services.Lighting:FindFirstChild("StandaloneAcrylicDOF")
+        if stale then stale:Destroy() end
+    end)
+
+    local dof = Instance.new("DepthOfFieldEffect")
+    dof.Name = "StandaloneAcrylicDOF"
+    dof.FarIntensity = 0                                            -- Keep 3D world sharp
+    dof.NearIntensity = 1                                           -- Blur the foreground veil quad
+    dof.FocusDistance = UIManager.Config.ACRYLIC.FocusDistance or 2 -- Focus plane in front of camera
+    dof.InFocusRadius = UIManager.Config.ACRYLIC.InFocusRadius or 1.5
+    dof.Enabled = Acrylic.Enabled
+    dof.Parent = Services.Lighting
+    Acrylic.DOF = dof
+
+    table.insert(Acrylic.Cleanups, Services.Workspace:GetPropertyChangedSignal("CurrentCamera"):Connect(function()
+        local newCam = Services.Workspace.CurrentCamera
+        if newCam and Acrylic.Folder then Acrylic.Folder.Parent = newCam end
+    end))
+end
+
+function Acrylic.SetEnabled(enabled)
+    Acrylic.Enabled = enabled
+    if Acrylic.DOF then Acrylic.DOF.Enabled = enabled end
+    for _, blur in ipairs(Acrylic.BlurInstances) do
+        if blur.SetVisibility then
+            blur.SetVisibility(enabled and (blur.Frame and blur.Frame.Visible))
+        end
+    end
+end
+
+function Acrylic.CreateBlur(targetFrame, distance)
+    local A = UIManager.Config.ACRYLIC
+    distance = distance or A.Distance or 0.4
+    local veilTransparency = A.VeilTransparency or 0.45
+
+    local cleanups = {}
+    local positions = { topLeft = Vector2.zero, topRight = Vector2.zero, bottomRight = Vector2.zero }
+
+    local part = Instance.new("Part")
+    part.Name = "AcrylicBody"
+    part.Color = A.VeilColor or UIManager.Config.THEME.AcrylicMain
+    part.Material = Enum.Material.Glass
+    part.Size = Vector3.new(1, 1, 0)
+    part.Anchored = true
+    part.CanCollide = false
+    part.Locked = true
+    part.CastShadow = false
+    part.Transparency = veilTransparency
+
+    local mesh = Instance.new("SpecialMesh")
+    mesh.MeshType = Enum.MeshType.Brick
+    mesh.Offset = Vector3.new(0, 0, -0.000001)
+    mesh.Parent = part
+
+    if Acrylic.Folder then part.Parent = Acrylic.Folder
+    elseif Services.Workspace.CurrentCamera then part.Parent = Services.Workspace.CurrentCamera end
+
+    local function render()
+        local camera = Services.Workspace.CurrentCamera
+        if not camera then return end
+        local cframe = camera.CFrame or CFrame.new()
+
+        local tl = viewportPointToWorld(positions.topLeft, distance)
+        local tr = viewportPointToWorld(positions.topRight, distance)
+        local br = viewportPointToWorld(positions.bottomRight, distance)
+
+        local width = (tr - tl).Magnitude
+        local height = (tr - br).Magnitude
+
+        part.CFrame = CFrame.fromMatrix((tl + br) / 2, cframe.XVector, cframe.YVector, cframe.ZVector)
+        mesh.Scale = Vector3.new(width, height, 0)
+    end
+
+    local function onChange()
+        if not (targetFrame and targetFrame.Parent) then return end
+        local offset = getCameraOffset()
+        local size = targetFrame.AbsoluteSize - Vector2.new(offset, offset)
+        local pos = targetFrame.AbsolutePosition + Vector2.new(offset / 2, offset / 2)
+
+        positions.topLeft = pos
+        positions.topRight = pos + Vector2.new(size.X, 0)
+        positions.bottomRight = pos + size
+        task.spawn(render)
+    end
+
+    local camera = Services.Workspace.CurrentCamera
+    if camera then
+        table.insert(cleanups, camera:GetPropertyChangedSignal("CFrame"):Connect(render))
+        table.insert(cleanups, camera:GetPropertyChangedSignal("ViewportSize"):Connect(function() onChange() render() end))
+        table.insert(cleanups, camera:GetPropertyChangedSignal("FieldOfView"):Connect(render))
+    end
+
+    table.insert(cleanups, targetFrame:GetPropertyChangedSignal("AbsolutePosition"):Connect(onChange))
+    table.insert(cleanups, targetFrame:GetPropertyChangedSignal("AbsoluteSize"):Connect(onChange))
+
+    local blurObj = {
+        Frame = targetFrame,
+        Model = part,
+        SetVisibility = function(visible)
+            if part and part.Parent then
+                part.Transparency = (visible and Acrylic.Enabled) and veilTransparency or 1
+            end
+        end,
+        Destroy = function()
+            for _, c in ipairs(cleanups) do pcall(function() c:Disconnect() end) end
+            if part and part.Parent then part:Destroy() end
+        end
+    }
+
+    targetFrame.Destroying:Connect(function() blurObj.Destroy() end)
+    table.insert(Acrylic.BlurInstances, blurObj)
+    onChange()
+    return blurObj
+end
+
+function Acrylic.Destroy()
+    for _, c in ipairs(Acrylic.Cleanups) do pcall(function() c:Disconnect() end) end
+    for _, b in ipairs(Acrylic.BlurInstances) do pcall(function() b.Destroy() end) end
+    table.clear(Acrylic.BlurInstances)
+    if Acrylic.DOF then pcall(function() Acrylic.DOF:Destroy() end) end
+    if Acrylic.Folder then pcall(function() Acrylic.Folder:Destroy() end) end
+end
+
+Acrylic.Init()
+UIManager.Acrylic = Acrylic
+
+-- ---------------------------------------------------------------------
+-- 4. UTILITIES & INTERACTIVITY HELPERS
+-- ---------------------------------------------------------------------
+function UIManager.MakeDraggable(frame, handle)
+    handle = handle or frame
+    local dragging = false
+    local dragInput, dragStart, startPos
+
+    handle.InputBegan:Connect(function(input)
+        if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
+            dragging = true
+            dragStart = input.Position
+            startPos = frame.Position
+            input.Changed:Connect(function()
+                if input.UserInputState == Enum.UserInputState.End then dragging = false end
+            end)
+        end
+    end)
+
+    handle.InputChanged:Connect(function(input)
+        if input.UserInputType == Enum.UserInputType.MouseMovement or input.UserInputType == Enum.UserInputType.Touch then
+            dragInput = input
+        end
+    end)
+
+    Services.UserInputService.InputChanged:Connect(function(input)
+        if input == dragInput and dragging then
+            local delta = input.Position - dragStart
+            frame.Position = UDim2.new(startPos.X.Scale, startPos.X.Offset + delta.X, startPos.Y.Scale, startPos.Y.Offset + delta.Y)
+        end
+    end)
+end
+
+function UIManager.MakeResizable(frame, handle, minSize, maxSize)
+    handle.InputBegan:Connect(function(input)
+        if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
+            local startInput = input.Position
+            local startPos = frame.Position
+            local startSize = frame.Size
+            local moveConn
+            moveConn = Services.UserInputService.InputChanged:Connect(function(move)
+                if move.UserInputType == Enum.UserInputType.MouseMovement or move.UserInputType == Enum.UserInputType.Touch then
+                    local delta = move.Position - startInput
+                    local newWidth  = math.clamp(startSize.X.Offset - delta.X, minSize.X, maxSize.X)
+                    local newHeight = math.clamp(startSize.Y.Offset + delta.Y, minSize.Y, maxSize.Y)
+                    frame.Size = UDim2.new(startSize.X.Scale, newWidth, startSize.Y.Scale, newHeight)
+                    frame.Position = UDim2.new(startPos.X.Scale, startPos.X.Offset + (startSize.X.Offset - newWidth), startPos.Y.Scale, startPos.Y.Offset)
+                end
+            end)
+            input.Changed:Connect(function()
+                if input.UserInputState == Enum.UserInputState.End and moveConn then
+                    moveConn:Disconnect()
+                    moveConn = nil
+                end
+            end)
+        end
+    end)
+end
+
+function UIManager.CreateLiquidStroke(parent, radius, opts)
+    opts = opts or {}
+    local T = UIManager.Config.THEME
+    local inset = opts.inset or 0
+
+    local holder = Instance.new("Frame")
+    holder.Name = opts.name or "LiquidStroke"
+    holder.Size = UDim2.new(1, -inset * 2, 1, -inset * 2)
+    holder.Position = UDim2.new(0, inset, 0, inset)
+    holder.BackgroundTransparency = 1
+    holder.BorderSizePixel = 0
+    holder.ZIndex = opts.zIndex or 3
+    Instance.new("UICorner", holder).CornerRadius = UDim.new(0, math.max(0, radius - inset))
+
+    local stroke = Instance.new("UIStroke")
+    stroke.Color = opts.color or Color3.fromRGB(255, 255, 255)
+    stroke.Transparency = opts.transparency or T.RimTransparency or 0.08
+    stroke.Thickness = opts.thickness or T.RimThickness or 1.6
+    stroke.ApplyStrokeMode = Enum.ApplyStrokeMode.Border
+
+    if opts.flat ~= true then
+        local grad = Instance.new("UIGradient")
+        grad.Rotation = opts.rotation or T.RimRotation or 90
+        grad.Color = opts.gradient or T.RimGradient
+        grad.Parent = stroke
+    end
+    stroke.Parent = holder
+    holder.Parent = parent
+    return holder, stroke
+end
+
+function UIManager.CreateGlassPanel(name, size, position, radius, tint, anchorPoint)
+    radius = radius or 10
+    tint = tint or UIManager.Config.THEME.GlassTint
+    anchorPoint = anchorPoint or Vector2.zero
+    local T = UIManager.Config.THEME
+
+    local wrapper = Instance.new("Frame")
+    wrapper.Name = name
+    wrapper.Size = size
+    wrapper.Position = position
+    wrapper.AnchorPoint = anchorPoint
+    wrapper.BackgroundTransparency = 1
+    wrapper.BorderSizePixel = 0
+    wrapper.Active = true
+
+    local shadow = Instance.new("ImageLabel")
+    shadow.Name = "Shadow"
+    shadow.AnchorPoint = Vector2.new(0.5, 0.5)
+    shadow.Position = UDim2.new(0.5, 0, 0.5, 0)
+    shadow.Size = UDim2.new(1, 120, 1, 116)
+    shadow.BackgroundTransparency = 1
+    shadow.Image = "rbxassetid://8992230677"
+    shadow.ImageColor3 = Color3.fromRGB(0, 0, 0)
+    shadow.ImageTransparency = 0.70
+    shadow.ScaleType = Enum.ScaleType.Slice
+    shadow.SliceCenter = Rect.new(99, 99, 99, 99)
+    shadow.ZIndex = 0
+    shadow.Parent = wrapper
+
+    -- Frosted glass veil: blurred quad behind the UI
+    local blurObj = Acrylic.CreateBlur(wrapper)
+
+    -- Translucent body background
+    local bgFrame = Instance.new("Frame")
+    bgFrame.Name = "AcrylicBackground"
+    bgFrame.Size = UDim2.new(1, 0, 1, 0)
+    bgFrame.BackgroundColor3 = T.AcrylicMain
+    bgFrame.BackgroundTransparency = math.clamp(tint + 0.30, 0.55, 0.90)
+    bgFrame.BorderSizePixel = 0
+    bgFrame.ZIndex = 1
+    Instance.new("UICorner", bgFrame).CornerRadius = UDim.new(0, radius)
+    bgFrame.Parent = wrapper
+
+    -- Soft subtle gradient overlay
+    local gradFrame = Instance.new("Frame")
+    gradFrame.Name = "AcrylicGradient"
+    gradFrame.Size = UDim2.new(1, 0, 1, 0)
+    gradFrame.BackgroundColor3 = Color3.fromRGB(255, 255, 255)
+    gradFrame.BackgroundTransparency = 0.92
+    gradFrame.BorderSizePixel = 0
+    gradFrame.ZIndex = 1
+    Instance.new("UICorner", gradFrame).CornerRadius = UDim.new(0, radius)
+    local grad = Instance.new("UIGradient")
+    grad.Rotation = 90
+    grad.Color = T.AcrylicGradient
+    grad.Parent = gradFrame
+    gradFrame.Parent = wrapper
+
+    local noise1 = Instance.new("ImageLabel")
+    noise1.Name = "AcrylicNoise1"
+    noise1.Size = UDim2.new(1, 0, 1, 0)
+    noise1.BackgroundTransparency = 1
+    noise1.Image = "rbxassetid://9968344105"
+    noise1.ImageTransparency = 0.96
+    noise1.ScaleType = Enum.ScaleType.Tile
+    noise1.TileSize = UDim2.new(0, 128, 0, 128)
+    noise1.ZIndex = 2
+    Instance.new("UICorner", noise1).CornerRadius = UDim.new(0, radius)
+    noise1.Parent = wrapper
+
+    local noise2 = Instance.new("ImageLabel")
+    noise2.Name = "AcrylicNoise2"
+    noise2.Size = UDim2.new(1, 0, 1, 0)
+    noise2.BackgroundTransparency = 1
+    noise2.Image = "rbxassetid://9968344227"
+    noise2.ImageTransparency = T.AcrylicNoise
+    noise2.ScaleType = Enum.ScaleType.Tile
+    noise2.TileSize = UDim2.new(0, 128, 0, 128)
+    noise2.ZIndex = 2
+    Instance.new("UICorner", noise2).CornerRadius = UDim.new(0, radius)
+    noise2.Parent = wrapper
+
+    -- Liquid Rim: Gradient stroke (bright top -> dark mid -> bright bottom)
+    UIManager.CreateLiquidStroke(wrapper, radius, {
+        name = "LiquidRim",
+        zIndex = 3,
+        thickness = T.RimThickness,
+        transparency = T.RimTransparency,
+    })
+
+    -- Inner hairline: Double-edge refraction line
+    UIManager.CreateLiquidStroke(wrapper, math.max(1, radius - 1), {
+        name = "InnerRim",
+        zIndex = 3,
+        inset = 1,
+        flat = true,
+        color = T.InnerRimColor,
+        transparency = T.InnerRimTransparency,
+        thickness = 1,
+    })
+
+    local glass = Instance.new("Frame")
+    glass.Name = "Glass"
+    glass.Size = UDim2.new(1, 0, 1, 0)
+    glass.BackgroundTransparency = 1
+    glass.BorderSizePixel = 0
+    glass.ZIndex = 3
+    Instance.new("UICorner", glass).CornerRadius = UDim.new(0, radius)
+    glass.Parent = wrapper
+
+    wrapper:GetPropertyChangedSignal("Visible"):Connect(function()
+        if blurObj then blurObj.SetVisibility(wrapper.Visible) end
+    end)
+    return wrapper, glass
+end
+
+-- ---------------------------------------------------------------------
+-- 5. INITIALIZATION & ELEMENT BUILDERS
+-- ---------------------------------------------------------------------
+function UIManager.Init(customConfig)
+    if customConfig then
+        for k, v in pairs(customConfig) do
+            if type(v) == "table" and type(UIManager.Config[k]) == "table" then
+                for subK, subV in pairs(v) do UIManager.Config[k][subK] = subV end
+            else
+                UIManager.Config[k] = v
+            end
+        end
+    end
+
+    -- Re-apply custom DOF parameters if config was overridden at runtime
+    if Acrylic.DOF then
+        Acrylic.DOF.FocusDistance = UIManager.Config.ACRYLIC.FocusDistance or 2.0
+        Acrylic.DOF.InFocusRadius = UIManager.Config.ACRYLIC.InFocusRadius or 1.5
+    end
+
+    local GUI_NAME = "AutoPlay_UI"
+    local ScreenGui = Instance.new("ScreenGui")
+    ScreenGui.Name = GUI_NAME
+    ScreenGui.ResetOnSpawn = false
+    ScreenGui.DisplayOrder = 999
+    ScreenGui.IgnoreGuiInset = false
+    ScreenGui.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
+
+    local roots = {}
+    if gethui then pcall(function() table.insert(roots, gethui()) end) end
+    table.insert(roots, Services.CoreGui)
+    table.insert(roots, LocalPlayer:FindFirstChildOfClass("PlayerGui"))
+
+    for _, root in ipairs(roots) do
+        if root then
+            local old = root:FindFirstChild(GUI_NAME)
+            if old then pcall(function() old:Destroy() end) end
+            if pcall(function() ScreenGui.Parent = root end) then break end
+        end
+    end
+
+    ScreenGui.Destroying:Connect(function() Acrylic.Destroy() end)
+    UIManager.ScreenGui = ScreenGui
+
+    -- --- Toolbar ---
+    local ToolBar, ToolBarGlass = UIManager.CreateGlassPanel("ToolBar", UIManager.Config.UI_LAYOUT.ToolbarSize, UIManager.Config.UI_LAYOUT.ToolbarPosition, 10, UIManager.Config.THEME.GlassTint + 0.08, UIManager.Config.UI_LAYOUT.ToolbarAnchorPoint)
+    ToolBar.Parent = ScreenGui
+    UIManager.ToolBar = ToolBar
+
+    local ToolBarContent = Instance.new("Frame")
+    ToolBarContent.Name = "Content"
+    ToolBarContent.Size = UDim2.new(1, 0, 1, 0)
+    ToolBarContent.BackgroundTransparency = 1
+    ToolBarContent.BorderSizePixel = 0
+    ToolBarContent.ZIndex = 4
+    ToolBarContent.Parent = ToolBarGlass
+
+    local TB_Pad = Instance.new("UIPadding")
+    TB_Pad.PaddingLeft = UDim.new(0, 8)
+    TB_Pad.PaddingRight = UDim.new(0, 8)
+    TB_Pad.Parent = ToolBarContent
+
+    local TB_Layout = Instance.new("UIListLayout")
+    TB_Layout.FillDirection = Enum.FillDirection.Horizontal
+    TB_Layout.HorizontalAlignment = Enum.HorizontalAlignment.Center
+    TB_Layout.VerticalAlignment = Enum.VerticalAlignment.Center
+    TB_Layout.Padding = UDim.new(0, 6)
+    TB_Layout.SortOrder = Enum.SortOrder.LayoutOrder
+    TB_Layout.Parent = ToolBarContent
+
+    local Grip = Instance.new("ImageLabel")
+    Grip.Name = "DragGrip"
+    Grip.Size = UDim2.new(0, 16, 0, 16)
+    Grip.BackgroundTransparency = 1
+    UIManager.SetIcon(Grip, "grip-vertical")
+    Grip.ImageColor3 = UIManager.Config.THEME.SubMuted
+    Grip.ImageTransparency = 0.3
+    Grip.Active = true
+    Grip.LayoutOrder = 0
+    Grip.Parent = ToolBarContent
+    UIManager.MakeDraggable(ToolBar, Grip)
+
+    function UIManager.CreatePillButton(text, defaultColor, width, order, iconName)
+        local btn = Instance.new("TextButton")
+        btn.Name = text
+        btn.Size = UDim2.new(0, width, 1, -10)
+        btn.BackgroundColor3 = UIManager.Config.THEME.GlassAlt
+        btn.BackgroundTransparency = 0.20
+        btn.Text = ""
+        btn.AutoButtonColor = false
+        btn.BorderSizePixel = 0
+        btn.LayoutOrder = order
+        btn.ZIndex = 4
+        Instance.new("UICorner", btn).CornerRadius = UDim.new(0, 8)
+        btn.Parent = ToolBarContent
+
+        -- Liquid border stroke on pill button
+        local stroke = Instance.new("UIStroke")
+        stroke.Name = "LiquidRim"
+        stroke.Color = Color3.fromRGB(255, 255, 255)
+        stroke.Transparency = 0.45
+        stroke.Thickness = 1.2
+        stroke.ApplyStrokeMode = Enum.ApplyStrokeMode.Border
+        stroke.Parent = btn
+
+        local strokeGrad = Instance.new("UIGradient")
+        strokeGrad.Rotation = 90
+        strokeGrad.Color = UIManager.Config.THEME.RimGradient
+        strokeGrad.Parent = stroke
+
+        local iconImg = Instance.new("ImageLabel")
+        iconImg.Name = "StatusIcon"
+        iconImg.Size = UDim2.new(0, 14, 0, 14)
+        iconImg.Position = UDim2.new(0, 10, 0.5, -7)
+        iconImg.BackgroundTransparency = 1
+        UIManager.SetIcon(iconImg, iconName or "circle")
+        iconImg.ImageColor3 = defaultColor
+        iconImg.Parent = btn
+
+        local lbl = Instance.new("TextLabel")
+        lbl.Name = "BtnText"
+        lbl.Size = UDim2.new(1, -30, 1, 0)
+        lbl.Position = UDim2.new(0, 28, 0, 0)
+        lbl.BackgroundTransparency = 1
+        lbl.Text = text
+        lbl.TextColor3 = UIManager.Config.THEME.Text
+        lbl.Font = Enum.Font.GothamBold
+        lbl.TextSize = 11
+        lbl.TextXAlignment = Enum.TextXAlignment.Center
+        lbl.Parent = btn
+
+        btn.MouseEnter:Connect(function()
+            Services.TweenService:Create(stroke, TweenInfo.new(0.15), { Transparency = 0.05 }):Play()
+            Services.TweenService:Create(btn, TweenInfo.new(0.15), { BackgroundTransparency = 0 }):Play()
+            Services.TweenService:Create(iconImg, TweenInfo.new(0.15), { ImageTransparency = 0 }):Play()
+        end)
+        btn.MouseLeave:Connect(function()
+            Services.TweenService:Create(stroke, TweenInfo.new(0.15), { Transparency = 0.45 }):Play()
+            Services.TweenService:Create(btn, TweenInfo.new(0.15), { BackgroundTransparency = 0.20 }):Play()
+        end)
+        return btn, iconImg, lbl
+    end
+
+    -- --- Console Window ---
+    local ConsoleFrame, ConsoleGlass = UIManager.CreateGlassPanel("ConsoleWindow", UIManager.Config.UI_LAYOUT.ConsoleSize, UIManager.Config.UI_LAYOUT.ConsolePosition, 10, UIManager.Config.THEME.GlassTint)
+    ConsoleFrame.Visible = UIManager.Config.UI_LAYOUT.ConsoleVisibleOnStart
+    ConsoleFrame.Parent = ScreenGui
+    UIManager.ConsoleFrame = ConsoleFrame
+
+    local Header = Instance.new("Frame")
+    Header.Name = "Header"
+    Header.Size = UDim2.new(1, 0, 0, 34)
+    Header.BackgroundTransparency = 1
+    Header.ZIndex = 4
+    Header.Parent = ConsoleGlass
+
+    local Title = Instance.new("TextLabel")
+    Title.Name = "Title"
+    Title.Size = UDim2.new(0, 180, 1, 0)
+    Title.Position = UDim2.new(0, 12, 0, 0)
+    Title.BackgroundTransparency = 1
+    Title.Text = "AUTOPLAY // CONSOLE"
+    Title.TextColor3 = UIManager.Config.THEME.Text
+    Title.Font = Enum.Font.GothamBold
+    Title.TextSize = 11
+    Title.TextXAlignment = Enum.TextXAlignment.Left
+    Title.ZIndex = 4
+    Title.Parent = Header
+
+    local CounterBadge = Instance.new("TextLabel")
+    CounterBadge.Name = "CounterBadge"
+    CounterBadge.Size = UDim2.new(0, 48, 0, 17)
+    CounterBadge.Position = UDim2.new(1, -132, 0.5, -8)
+    CounterBadge.BackgroundColor3 = UIManager.Config.THEME.EdgeLight
+    CounterBadge.BackgroundTransparency = 0.90
+    CounterBadge.Text = string.format("0/%d", UIManager.Config.MAX_LOG_LINES)
+    CounterBadge.TextColor3 = UIManager.Config.THEME.SubMuted
+    CounterBadge.Font = Enum.Font.GothamMedium
+    CounterBadge.TextSize = 9
+    CounterBadge.BorderSizePixel = 0
+    CounterBadge.ZIndex = 4
+    CounterBadge.Parent = Header
+    Instance.new("UICorner", CounterBadge).CornerRadius = UDim.new(0, 4)
+
+    local function styleGhostButton(btn)
+        btn.BackgroundColor3 = UIManager.Config.THEME.EdgeLight
+        btn.BackgroundTransparency = 1
+        btn.BorderSizePixel = 0
+        btn.ZIndex = 4
+        btn.AutoButtonColor = false
+        Instance.new("UICorner", btn).CornerRadius = UDim.new(0, 5)
+
+        local s = Instance.new("UIStroke")
+        s.Color = UIManager.Config.THEME.EdgeLight
+        s.Transparency = 0.85
+        s.Thickness = 1
+        s.Parent = btn
+
+        btn.MouseEnter:Connect(function() Services.TweenService:Create(btn, TweenInfo.new(0.12), { BackgroundTransparency = 0.84 }):Play() end)
+        btn.MouseLeave:Connect(function() Services.TweenService:Create(btn, TweenInfo.new(0.12), { BackgroundTransparency = 1 }):Play() end)
+        return btn
+    end
+
+    local ClearBtn = styleGhostButton(Instance.new("TextButton"))
+    ClearBtn.Name = "ClearBtn"
+    ClearBtn.Size = UDim2.new(0, 44, 0, 21)
+    ClearBtn.Position = UDim2.new(1, -78, 0.5, -10)
+    ClearBtn.Text = "Clear"
+    ClearBtn.TextColor3 = UIManager.Config.THEME.Muted
+    ClearBtn.Font = Enum.Font.GothamMedium
+    ClearBtn.TextSize = 10
+    ClearBtn.Parent = Header
+
+    local CloseBtn = styleGhostButton(Instance.new("TextButton"))
+    CloseBtn.Name = "CloseBtn"
+    CloseBtn.Size = UDim2.new(0, 22, 0, 21)
+    CloseBtn.Position = UDim2.new(1, -28, 0.5, -10)
+    CloseBtn.Text = "X"
+    CloseBtn.TextColor3 = Color3.fromRGB(235, 110, 110)
+    CloseBtn.Font = Enum.Font.GothamBold
+    CloseBtn.TextSize = 10
+    CloseBtn.Parent = Header
+
+    local LogContainer = Instance.new("Frame")
+    LogContainer.Name = "LogWell"
+    LogContainer.Size = UDim2.new(1, -16, 1, -56)
+    LogContainer.Position = UDim2.new(0, 8, 0, 40)
+    LogContainer.BackgroundColor3 = UIManager.Config.THEME.GlassDeep
+    LogContainer.BackgroundTransparency = math.clamp(UIManager.Config.THEME.WellTint + 0.08, 0.30, 0.55)
+    LogContainer.BorderSizePixel = 0
+    LogContainer.ZIndex = 4
+    LogContainer.ClipsDescendants = true
+    LogContainer.Parent = ConsoleGlass
+    Instance.new("UICorner", LogContainer).CornerRadius = UDim.new(0, 8)
+    UIManager.CreateLiquidStroke(LogContainer, 8, { name = "WellRim", zIndex = 5, thickness = 1.2, transparency = 0.40 })
+
+    local LogScroll = Instance.new("ScrollingFrame")
+    LogScroll.Name = "LogScroll"
+    LogScroll.Size = UDim2.new(1, -8, 1, -8)
+    LogScroll.Position = UDim2.new(0, 4, 0, 4)
+    LogScroll.BackgroundTransparency = 1
+    LogScroll.BorderSizePixel = 0
+    LogScroll.ScrollBarThickness = 3
+    LogScroll.ScrollBarImageColor3 = UIManager.Config.THEME.Accent
+    LogScroll.ScrollBarImageTransparency = 0.25
+    LogScroll.ScrollingDirection = Enum.ScrollingDirection.Y
+    LogScroll.AutomaticCanvasSize = Enum.AutomaticSize.Y
+    LogScroll.CanvasSize = UDim2.new(0, 0, 0, 0)
+    LogScroll.ZIndex = 4
+    LogScroll.Parent = LogContainer
+    UIManager.LogScroll = LogScroll
+
+    local LogLayout = Instance.new("UIListLayout")
+    LogLayout.SortOrder = Enum.SortOrder.LayoutOrder
+    LogLayout.Padding = UDim.new(0, 2)
+    LogLayout.Parent = LogScroll
+
+    local LogPadding = Instance.new("UIPadding")
+    LogPadding.PaddingLeft = UDim.new(0, 6)
+    LogPadding.PaddingRight = UDim.new(0, 6)
+    LogPadding.PaddingTop = UDim.new(0, 4)
+    LogPadding.PaddingBottom = UDim.new(0, 4)
+    LogPadding.Parent = LogScroll
+
+    local ResizeBar = Instance.new("Frame")
+    ResizeBar.Name = "ResizeGripBottomLeft"
+    ResizeBar.Size = UDim2.new(0, 36, 0, 6)
+    ResizeBar.Position = UDim2.new(0, 10, 1, -13)
+    ResizeBar.BackgroundColor3 = UIManager.Config.THEME.SubMuted
+    ResizeBar.BackgroundTransparency = 0.25
+    ResizeBar.BorderSizePixel = 0
+    ResizeBar.Active = true
+    ResizeBar.ZIndex = 5
+    ResizeBar.Parent = ConsoleGlass
+    Instance.new("UICorner", ResizeBar).CornerRadius = UDim.new(1, 0)
+
+    UIManager.MakeDraggable(ConsoleFrame, Header)
+    UIManager.MakeResizable(ConsoleFrame, ResizeBar, UIManager.Config.UI_LAYOUT.MinConsoleSize, UIManager.Config.UI_LAYOUT.MaxConsoleSize)
+
+    local function updateCounterBadge()
+        local count = 0
+        for _, child in ipairs(LogScroll:GetChildren()) do
+            if child:IsA("TextLabel") then count += 1 end
+        end
+        CounterBadge.Text = string.format("%d/%d", count, UIManager.Config.MAX_LOG_LINES)
+        CounterBadge.TextColor3 = (count >= UIManager.Config.MAX_LOG_LINES) and UIManager.Config.THEME.AccentSoft or UIManager.Config.THEME.SubMuted
+    end
+
+    LogScroll.ChildAdded:Connect(function(child) if child:IsA("TextLabel") then updateCounterBadge() end end)
+    LogScroll.ChildRemoved:Connect(function(child) if child:IsA("TextLabel") then task.defer(updateCounterBadge) end end)
+
+    ClearBtn.MouseButton1Click:Connect(function()
+        for _, child in ipairs(LogScroll:GetChildren()) do
+            if child:IsA("TextLabel") then pcall(function() child:Destroy() end) end
+        end
+        task.defer(function()
+            updateCounterBadge()
+            UIManager.Log("SYSTEM", "Console cleared.", "#8A5CFF")
+        end)
+    end)
+
+    UIManager.SetDotState = function(indicator, color, pulse)
+        if indicator:IsA("ImageLabel") then
+            indicator.ImageColor3 = color
+            indicator.ImageTransparency = 0
+        else
+            indicator.BackgroundColor3 = color
+            indicator.BackgroundTransparency = 0
+        end
+    end
+
+    UIManager.SetConsoleVisibility = function(visible)
+        ConsoleFrame.Visible = visible
+        Acrylic.SetEnabled(visible or ToolBar.Visible)
+    end
+
+    CloseBtn.MouseButton1Click:Connect(function() UIManager.SetConsoleVisibility(false) end)
+
+    return UIManager
+end
+
+-- ---------------------------------------------------------------------
+-- 6. LOGGING SYSTEM
+-- ---------------------------------------------------------------------
+function UIManager.Log(tag, text, colorHex, customTimestamp)
+    local ok, err = pcall(function()
+        if not UIManager.LogScroll then return end
+        LogIndex = LogIndex + 1
+        colorHex = colorHex or "#E6E6F0"
+        
+        local tagOut = (tostring(tag):gsub("[<>&]", { ["<"] = "&lt;", [">"] = "&gt;", ["&"] = "&amp;" }))
+        local textOut = tostring(text)
+        textOut = textOut:gsub("<=", "&lt;=")
+        textOut = textOut:gsub(">=", "&gt;=")
+        textOut = textOut:gsub("<<", "&lt;&lt;")
+        textOut = textOut:gsub(">>", "&gt;&gt;")
+
+        local timeStamp = customTimestamp or os.date("%H:%M:%S")
+        local scroll = UIManager.LogScroll
+        local nearBottom = (scroll.AbsoluteCanvasSize.Y - scroll.CanvasPosition.Y - scroll.AbsoluteWindowSize.Y) <= 48
+
+        local entry = Instance.new("TextLabel")
+        entry.Name = string.format("LogEntry_%d", LogIndex)
+        entry.Size = UDim2.new(1, 0, 0, 0)
+        entry.AutomaticSize = Enum.AutomaticSize.Y
+        entry.BackgroundTransparency = 1
+        entry.RichText = true
+        entry.Font = UIManager.Config.UI_LAYOUT.LogFont
+        entry.TextSize = UIManager.Config.UI_LAYOUT.LogTextSize
+        entry.TextColor3 = UIManager.Config.THEME.Text
+        entry.TextXAlignment = Enum.TextXAlignment.Left
+        entry.TextWrapped = true
+        entry.LayoutOrder = LogIndex
+        entry.ZIndex = 4
+        entry.Text = string.format("<font color='#584E6D'>[%s]</font> <font color='%s'><b>[%s]</b> %s</font>", timeStamp, colorHex, tagOut, textOut)
+        entry.Parent = scroll
+
+        local labels = {}
+        for _, child in ipairs(scroll:GetChildren()) do
+            if child:IsA("TextLabel") then table.insert(labels, child) end
+        end
+        table.sort(labels, function(a, b) return (a.LayoutOrder or 0) < (b.LayoutOrder or 0) end)
+        while #labels > UIManager.Config.MAX_LOG_LINES do
+            local oldest = table.remove(labels, 1)
+            if oldest then pcall(function() oldest:Destroy() end) end
+        end
+
+        if nearBottom then
+            task.defer(function()
+                if entry.Parent then scroll.CanvasPosition = Vector2.new(0, scroll.AbsoluteCanvasSize.Y) end
+            end)
+        end
+        entry.TextTransparency = 0.45
+        Services.TweenService:Create(entry, TweenInfo.new(0.18, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), { TextTransparency = 0 }):Play()
+    end)
+    if not ok then warn("[Console] log error:", err) end
+end
+
+return UIManager
