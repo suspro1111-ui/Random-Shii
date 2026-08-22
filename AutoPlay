@@ -1,11 +1,10 @@
 
 -- =====================================================================
--- AUTO-PLAY CORE (v1.6)
+-- AUTO-PLAY CORE (v1.7)
 -- =====================================================================
 
 local RawConfig = ... or {}
 
--- Helper to safely extract boolean/value fallbacks
 local function opt(v, fallback) if v ~= nil then return v else return fallback end end
 
 local Config = {
@@ -19,6 +18,7 @@ local Config = {
     AUTO_RETRY             = opt(RawConfig.AUTO_RETRY, opt(RawConfig.AUTO_RETRY_ENABLED, true)),
     STOP_ON_DEATH          = opt(RawConfig.STOP_ON_DEATH, true),
     BOSS_MANUAL_REQUIRED   = opt(RawConfig.BOSS_MANUAL_REQUIRED, opt(RawConfig.BOSS_REQUIRES_MANUAL, false)),
+    AUTO_USE_BOSS_STRATS   = opt(RawConfig.AUTO_USE_BOSS_STRATS, true), -- Custom tailored combat AI per boss
 
     -- [Combat Tactics]
     TARGET_STAGGERED_FIRST = opt(RawConfig.TARGET_STAGGERED_FIRST, true),
@@ -29,29 +29,29 @@ local Config = {
     PLAY_LEFTOVER_EVADES   = opt(RawConfig.PLAY_LEFTOVER_EVADES, false),
     KEEP_DEFENSE_RESERVE   = RawConfig.KEEP_DEFENSE_RESERVE or 0,
     DEFENSE_SWAP_MAX_RANK  = RawConfig.DEFENSE_SWAP_MAX_RANK or 2,
-    LOW_POSTURE_LIMIT      = RawConfig.LOW_POSTURE_LIMIT or 0, -- Supports "15%" or flat 15
+    LOW_POSTURE_LIMIT      = RawConfig.LOW_POSTURE_LIMIT or 0,
 
     -- [E.G.O Logic & Safety Gates]
     AUTO_USE_EGO           = opt(RawConfig.AUTO_USE_EGO, false),
-    EGO_MODE               = RawConfig.EGO_MODE or RawConfig.EGO_USAGE_MODE or "Emergency", -- "Emergency" or "Always"
-    EGO_MIN_THREAT         = RawConfig.EGO_MIN_THREAT or RawConfig.EGO_MIN_THREAT_DAMAGE_PCT or RawConfig.EGO_MIN_THREAT_DAMAGE or "25%", -- Supports "25%" or flat 20
-    EGO_DYING_HP           = RawConfig.EGO_DYING_HP or RawConfig.EGO_DYING_THRESHOLD_PCT or "30%", -- Supports "30%" or flat 30
+    EGO_MODE               = RawConfig.EGO_MODE or RawConfig.EGO_USAGE_MODE or "Emergency",
+    EGO_MIN_THREAT         = RawConfig.EGO_MIN_THREAT or RawConfig.EGO_MIN_THREAT_DAMAGE_PCT or RawConfig.EGO_MIN_THREAT_DAMAGE or "25%",
+    EGO_DYING_HP           = RawConfig.EGO_DYING_HP or RawConfig.EGO_DYING_THRESHOLD_PCT or "30%",
     EGO_MIN_POSTURE        = RawConfig.EGO_MIN_POSTURE or RawConfig.EGO_MIN_POSTURE_LIMIT or 10,
     EGO_ON_LETHAL          = opt(RawConfig.EGO_ON_LETHAL, opt(RawConfig.EGO_USE_ON_LETHAL, true)),
 
     -- [Dungeon & Decision Strategies]
-    EMERGENCY_REST_HP      = RawConfig.EMERGENCY_REST_HP or RawConfig.EMERGENCY_REST_HP_PCT or "45%", -- Supports "45%" or flat 45
-    CARD_REWARD_STRATEGY   = RawConfig.CARD_REWARD_STRATEGY or RawConfig.REWARD_CARD_STRATEGY or "HighestRarity", -- "HighestRarity", "Skip"
-    PASSIVE_STRATEGY       = RawConfig.PASSIVE_STRATEGY or RawConfig.REWARD_PASSIVE_STRATEGY or "Priority",       -- "Priority", "Skip"
-    EVENT_STRATEGY         = RawConfig.EVENT_STRATEGY or RawConfig.EVENT_OPTION_STRATEGY or "Guaranteed",         -- "Guaranteed", "Last"
-    BOSS_VOTE_STRATEGY     = RawConfig.BOSS_VOTE_STRATEGY or "Priority",                                          -- "Priority", "Random"
+    EMERGENCY_REST_HP      = RawConfig.EMERGENCY_REST_HP or RawConfig.EMERGENCY_REST_HP_PCT or "45%",
+    CARD_REWARD_STRATEGY   = RawConfig.CARD_REWARD_STRATEGY or RawConfig.REWARD_CARD_STRATEGY or "HighestRarity",
+    PASSIVE_STRATEGY       = RawConfig.PASSIVE_STRATEGY or RawConfig.REWARD_PASSIVE_STRATEGY or "Priority",
+    EVENT_STRATEGY         = RawConfig.EVENT_STRATEGY or RawConfig.EVENT_OPTION_STRATEGY or "Guaranteed",
+    BOSS_VOTE_STRATEGY     = RawConfig.BOSS_VOTE_STRATEGY or "Priority",
     CUSTOM_PASSIVE_PRIORITY= RawConfig.CUSTOM_PASSIVE_PRIORITY or {},
     CUSTOM_EVENT_CHOICES   = RawConfig.CUSTOM_EVENT_CHOICES or {},
     BOSS_PRIORITY_LIST     = RawConfig.BOSS_PRIORITY_LIST or {},
 
     -- [Timeouts & Watchdogs]
-    RUN_TIMEOUT            = RawConfig.RUN_TIMEOUT or 3600, -- Seconds (0 to disable)
-    INACTIVITY_TIMEOUT     = RawConfig.INACTIVITY_TIMEOUT or 90, -- Seconds (0 to disable)
+    RUN_TIMEOUT            = RawConfig.RUN_TIMEOUT or 3600,
+    INACTIVITY_TIMEOUT     = RawConfig.INACTIVITY_TIMEOUT or 90,
 
     -- [Advanced / Pre-tuned Internal Settings]
     ADVANCED = RawConfig.ADVANCED or {
@@ -206,7 +206,7 @@ end
 local Utils   = {}
 local Acrylic = { Cleanups = {}, BlurInstances = {}, Folder = nil, DOF = nil, Enabled = true }
 local UI      = {}
-local Combat  = {}
+local Combat  = { BossStrategies = {} }
 local Dungeon = {}
 
 Combat.BuffModifiers = {
@@ -309,7 +309,6 @@ function Utils.toNumber(v)
     return nil
 end
 
--- Unified Threshold Resolver: Parses "50%", 50, or "50"
 function Utils.resolveThreshold(val, maxVal, defaultVal)
     if val == nil then val = defaultVal end
     if type(val) == "string" then
@@ -1531,6 +1530,167 @@ function Combat.selectCardForEnemy(cardsInHand, targetEnemy, isOpposed, targetSl
     return safe or bestDefense
 end
 
+-- =====================================================================
+-- BOSS STRATEGIES REGISTRY & IDENTIFICATION
+-- =====================================================================
+function Combat.getCurrentBossName(): string?
+    local ok, txt = pcall(function()
+        local lbl = Refs.DungeonGui:FindFirstChild("BossLabel")
+        return lbl and lbl.Text
+    end)
+    if ok and type(txt) == "string" and txt ~= "" then
+        local matched = txt:match("Layer Boss:%s*(.+)")
+        if matched and matched ~= "" then return matched end
+    end
+    return nil
+end
+
+function Combat.getBossStrategy(bossName: string?)
+    if not bossName or bossName == "" then return nil end
+    if Combat.BossStrategies[bossName] then return Combat.BossStrategies[bossName] end
+
+    local lower = bossName:lower()
+    for registeredName, strat in pairs(Combat.BossStrategies) do
+        if lower:find(registeredName:lower(), 1, true) or registeredName:lower():find(lower, 1, true) then
+            return strat
+        end
+    end
+    return nil
+end
+
+-- =====================================================================
+ -- Custom Bosses Strats
+-- =====================================================================
+
+local Philip_DoneEgo = false
+Combat.BossStrategies["Effloresced Dawn Office Fixer"] = {
+    selectAction = function(ctx)
+        local boss = ctx.Boss
+        local liveCard = boss and boss.NextCard
+
+        if liveCard then
+            local cardName = liveCard.Name:lower()
+            local isFeatherOrShield = cardName:find("feather") or cardName:find("shield")
+
+            if cardName:find("searing sword") then
+                Philip_DoneEgo = true
+                UI.Log("BOSS_AI", "[Philip] Searing Sword detected (E.G.O Phase)! Engaging in combat.", "#2ECC71")
+                return nil
+            end
+
+            if not Philip_DoneEgo and isFeatherOrShield then
+                UI.Log("BOSS_AI", "[Philip] Pre-E.G.O Shield mode. Passing turn...", "#FFD54F")
+                return "PASS"
+            end
+
+            if Philip_DoneEgo and isFeatherOrShield then
+                local chosenGuard = nil
+                for _, card in ipairs(ctx.AvailableCards) do
+                    if card.IsDefenseOrEvade and card.DefenseKind == "Guard" then
+                        chosenGuard = card
+                        break
+                    end
+                end
+
+                if not chosenGuard then
+                    for _, card in ipairs(ctx.AvailableCards) do
+                        if card.IsDefenseOrEvade then
+                            chosenGuard = card
+                            break
+                        end
+                    end
+                end
+
+                if chosenGuard then
+                    UI.Log("BOSS_AI", string.format("[Philip] Playing Guard: <font color='#CE93D8'>%s</font>", chosenGuard.Name), "#CE93D8")
+                    return boss, chosenGuard
+                else
+                    UI.Log("BOSS_AI", "[Philip] No Guard cards available in hand. Passing turn.", "#B0BEC5")
+                    return "PASS"
+                end
+            end
+        end
+        
+        return nil
+    end,
+}
+
+Combat.BossStrategies["Resentful Bamboo-Hatted Ronin"] = {
+    selectAction = function(ctx)
+        local boss = ctx.Boss
+        local liveCard = boss and boss.NextCard
+
+        if liveCard then
+            local cardName = liveCard.Name:lower()
+            
+            if cardName:match("yield my flesh") then
+                UI.Log("BOSS_AI", string.format("[Kim] Boss using <font color='#CE93D8'>%s</font> -> Passing turn...", liveCard.Name), "#FF5252")
+                return "PASS"
+            end
+
+            if cardName:match("to claim their bones") then
+                local egoCards = Combat.getEGOCards()
+                if #egoCards > 0 then
+                    local chosenEgo = egoCards[1]
+                    UI.Log("BOSS_AI", string.format("[Kim] Massive attack (<font color='#FFD54F'>%s</font>)! Deploying E.G.O: <b>%s</b>", liveCard.Name, chosenEgo.Name), "#FFD54F")
+                    return boss, chosenEgo
+                end
+
+                local chosenGuard = nil
+                for _, card in ipairs(ctx.AvailableCards) do
+                    if card.IsDefenseOrEvade and card.DefenseKind == "Guard" then
+                        chosenGuard = card
+                        break
+                    end
+                end
+
+                if not chosenGuard then
+                    for _, card in ipairs(ctx.AvailableCards) do
+                        if card.IsDefenseOrEvade then
+                            chosenGuard = card
+                            break
+                        end
+                    end
+                end
+
+                if chosenGuard then
+                    UI.Log("BOSS_AI", string.format("[Kim] No E.G.O available vs %s. Playing Defense: <font color='#CE93D8'>%s</font>", liveCard.Name, chosenGuard.Name), "#CE93D8")
+                    return boss, chosenGuard
+                else
+                    UI.Log("BOSS_AI", "[Kim] No E.G.O or Defense cards in hand. Falling back to clash AI.", "#FF5252")
+                end
+            end
+        end
+
+        return nil
+    end,
+}
+
+Combat.BossStrategies["Singing Machine"] = {
+    filterEnemies = function(enemies)
+        local singingMachine = nil
+        local otherEnemies = {}
+
+        for _, enemy in ipairs(enemies) do
+            local rawName = enemy.DisplayName or enemy.Name or ""
+            if rawName:find("Singing Machine") then
+                singingMachine = enemy
+            else
+                table.insert(otherEnemies, enemy)
+            end
+        end
+
+        if singingMachine and #otherEnemies > 0 and singingMachine.Health > 100 then
+            return otherEnemies
+        end
+
+        return enemies
+    end,
+}
+
+-- ---------------------------------------------------------------------
+-- COMBAT TURN PROCESSING
+-- ---------------------------------------------------------------------
 function Combat.tryEndTurn()
     task.wait(Config.ADVANCED.ActionDelay)
     local endWaitStart = os.clock()
@@ -1618,6 +1778,13 @@ function Combat.processTurn()
     Combat.resetTurnHandTracking()
     Combat.IsTurnExecuting = true
 
+    -- Detect Active Boss Strategy
+    local currentBossName = Combat.getCurrentBossName()
+    local activeBossStrat = Config.AUTO_USE_BOSS_STRATS and Combat.getBossStrategy(currentBossName) or nil
+    if activeBossStrat and currentBossName then
+        UI.Log("System", string.format("Custom combat strategy loaded for <font color='#FFD54F'><b>%s</b></font>!", currentBossName), "#FFD54F")
+    end
+
     while (not turnDone)
         and actionsThisTurn < Config.ADVANCED.MaxActionsPerTurn
         and State.IsBotRunning
@@ -1658,115 +1825,146 @@ function Combat.processTurn()
                     turnDone = true
                 else
                     local chosenEnemy = nil
+                    local cardToPlay = nil
                     local isOpposed = false
 
-                    if State.CombatMode == 1 then
-                        local threateningEnemies = {}
-                        local spareEnemies = {}
-
-                        for _, enemy in ipairs(enemies) do
-                            if (enemy.UnaddressedThreats or 0) > 0 and not enemy.IsStaggered then
-                                table.insert(threateningEnemies, enemy)
-                            else
-                                table.insert(spareEnemies, enemy)
+                    -- 1. Check Custom Boss Strategy Hook
+                    if activeBossStrat and activeBossStrat.selectAction then
+                        local bossEnemy = nil
+                        for _, e in ipairs(enemies) do
+                            if currentBossName and e.DisplayName:find(currentBossName, 1, true) then
+                                bossEnemy = e
+                                break
                             end
                         end
 
-                        if #threateningEnemies > 0 then
-                            table.sort(threateningEnemies, function(a, b)
-                                local aImm = not a.IsNextSlotDefensive
-                                local bImm = not b.IsNextSlotDefensive
-                                if aImm ~= bImm then return aImm end
+                        local ctx = {
+                            Boss            = bossEnemy or enemies[1],
+                            Enemies         = enemies,
+                            AvailableCards  = available,
+                            ActionsThisTurn = actionsThisTurn,
+                            Posture         = Combat.getPlayerPosture() or 100,
+                            Health          = Utils.toNumber(Refs.PlayerStats.Health) or 100,
+                            MaxHealth       = Utils.toNumber(Refs.PlayerStats.MaxHealth) or 100,
+                        }
 
-                                if a.NextThreatScore ~= b.NextThreatScore then
-                                    return a.NextThreatScore > b.NextThreatScore
+                        local okStrat, stratEnemy, stratCard = pcall(activeBossStrat.selectAction, ctx)
+                        if okStrat and stratEnemy and stratCard then
+                            chosenEnemy = stratEnemy
+                            cardToPlay = stratCard
+                        end
+                    end
+
+                    -- 2. Standard Strategic AI Fallback (Safe / Aggressive)
+                    if not chosenEnemy or not cardToPlay then
+                        if State.CombatMode == 1 then
+                            local threateningEnemies = {}
+                            local spareEnemies = {}
+
+                            for _, enemy in ipairs(enemies) do
+                                if (enemy.UnaddressedThreats or 0) > 0 and not enemy.IsStaggered then
+                                    table.insert(threateningEnemies, enemy)
+                                else
+                                    table.insert(spareEnemies, enemy)
                                 end
+                            end
 
-                                if Config.ADVANCED.ThreatTiebreakSpeed and a.Speed ~= b.Speed then
-                                    return a.Speed > b.Speed
-                                end
+                            if #threateningEnemies > 0 then
+                                table.sort(threateningEnemies, function(a, b)
+                                    local aImm = not a.IsNextSlotDefensive
+                                    local bImm = not b.IsNextSlotDefensive
+                                    if aImm ~= bImm then return aImm end
 
-                                return a.Id < b.Id
-                            end)
-
-                            chosenEnemy = threateningEnemies[1]
-                            isOpposed = true
-                        else
-                            local currentPosture = Combat.getPlayerPosture() or 100
-                            local isLowPosture = Utils.isBelowThreshold(currentPosture, 100, Config.LOW_POSTURE_LIMIT)
-
-                            if isLowPosture then
-                                UI.Log("POSTURE", string.format("Posture (%d) <= Limit (%s). Conserving posture.",
-                                    math.floor(currentPosture), tostring(Config.LOW_POSTURE_LIMIT)), "#FFD54F")
-                                turnDone = true
-                            else
-                                local affordableCards = {}
-                                local postThreshold = Utils.resolveThreshold(Config.LOW_POSTURE_LIMIT, 100, 0)
-
-                                for _, c in ipairs(available) do
-                                    local cost = c.Cost or 0
-                                    if not c.IsDefenseOrEvade and (currentPosture - cost) >= postThreshold then
-                                        table.insert(affordableCards, c)
+                                    if a.NextThreatScore ~= b.NextThreatScore then
+                                        return a.NextThreatScore > b.NextThreatScore
                                     end
-                                end
 
-                                if #affordableCards == 0 and Config.PLAY_LEFTOVER_EVADES then
+                                    if Config.ADVANCED.ThreatTiebreakSpeed and a.Speed ~= b.Speed then
+                                        return a.Speed > b.Speed
+                                    end
+
+                                    return a.Id < b.Id
+                                end)
+
+                                chosenEnemy = threateningEnemies[1]
+                                isOpposed = true
+                            else
+                                local currentPosture = Combat.getPlayerPosture() or 100
+                                local isLowPosture = Utils.isBelowThreshold(currentPosture, 100, Config.LOW_POSTURE_LIMIT)
+
+                                if isLowPosture then
+                                    UI.Log("POSTURE", string.format("Posture (%d) <= Limit (%s). Conserving posture.",
+                                        math.floor(currentPosture), tostring(Config.LOW_POSTURE_LIMIT)), "#FFD54F")
+                                    turnDone = true
+                                else
+                                    local affordableCards = {}
+                                    local postThreshold = Utils.resolveThreshold(Config.LOW_POSTURE_LIMIT, 100, 0)
+
                                     for _, c in ipairs(available) do
-                                        if c.IsDefenseOrEvade and c.DefenseKind == "Evade" then
+                                        local cost = c.Cost or 0
+                                        if not c.IsDefenseOrEvade and (currentPosture - cost) >= postThreshold then
                                             table.insert(affordableCards, c)
                                         end
                                     end
-                                end
 
-                                if #affordableCards == 0 then
-                                    UI.Log("POSTURE", "No spare attacks affordable without breaching Low Posture Limit. Ending turn.", "#B0BEC5")
-                                    turnDone = true
-                                else
-                                    local targetPool = #spareEnemies > 0 and spareEnemies or enemies
-
-                                    local strongest = 0
-                                    for _, c in ipairs(affordableCards) do
-                                        if (c.MaxPower or 0) > strongest then strongest = c.MaxPower end
+                                    if #affordableCards == 0 and Config.PLAY_LEFTOVER_EVADES then
+                                        for _, c in ipairs(available) do
+                                            if c.IsDefenseOrEvade and c.DefenseKind == "Evade" then
+                                                table.insert(affordableCards, c)
+                                            end
+                                        end
                                     end
-                                    local killLine = strongest * Config.KILL_MARGIN
 
-                                    table.sort(targetPool, function(a, b)
-                                        if Config.TARGET_STAGGERED_FIRST and a.IsStaggered ~= b.IsStaggered then
-                                            return a.IsStaggered
-                                        end
-                                        if Config.TARGET_KILLABLE_FIRST then
-                                            local aK, bK = a.EffectiveHP <= killLine, b.EffectiveHP <= killLine
-                                            if aK ~= bK then return aK end
-                                        end
-                                        if a.EffectiveHP ~= b.EffectiveHP then
-                                            return a.EffectiveHP < b.EffectiveHP
-                                        end
-                                        return a.Id < b.Id
-                                    end)
+                                    if #affordableCards == 0 then
+                                        UI.Log("POSTURE", "No spare attacks affordable without breaching Low Posture Limit. Ending turn.", "#B0BEC5")
+                                        turnDone = true
+                                    else
+                                        local targetPool = #spareEnemies > 0 and spareEnemies or enemies
 
-                                    chosenEnemy = targetPool[1]
-                                    isOpposed = false
-                                    available = affordableCards
+                                        local strongest = 0
+                                        for _, c in ipairs(affordableCards) do
+                                            if (c.MaxPower or 0) > strongest then strongest = c.MaxPower end
+                                        end
+                                        local killLine = strongest * Config.KILL_MARGIN
+
+                                        table.sort(targetPool, function(a, b)
+                                            if Config.TARGET_STAGGERED_FIRST and a.IsStaggered ~= b.IsStaggered then
+                                                return a.IsStaggered
+                                            end
+                                            if Config.TARGET_KILLABLE_FIRST then
+                                                local aK, bK = a.EffectiveHP <= killLine, b.EffectiveHP <= killLine
+                                                if aK ~= bK then return aK end
+                                            end
+                                            if a.EffectiveHP ~= b.EffectiveHP then
+                                                return a.EffectiveHP < b.EffectiveHP
+                                            end
+                                            return a.Id < b.Id
+                                        end)
+
+                                        chosenEnemy = targetPool[1]
+                                        isOpposed = false
+                                        available = affordableCards
+                                    end
                                 end
                             end
+                        else
+                            if Config.AGGRO_FOCUS_FIRE and FocusTargetId then
+                                for _, e in ipairs(enemies) do if e.Id == FocusTargetId then chosenEnemy = e break end end
+                            end
+                            if not chosenEnemy then
+                                table.sort(enemies, function(a, b)
+                                    if Config.TARGET_STAGGERED_FIRST and a.IsStaggered ~= b.IsStaggered then return a.IsStaggered end
+                                    if a.RemainingThreatScore ~= b.RemainingThreatScore then
+                                        return a.RemainingThreatScore > b.RemainingThreatScore
+                                    end
+                                    if a.EffectiveHP ~= b.EffectiveHP then return a.EffectiveHP < b.EffectiveHP end
+                                    return a.Id < b.Id
+                                end)
+                                chosenEnemy = enemies[1]
+                            end
+                            if chosenEnemy then FocusTargetId = chosenEnemy.Id end
+                            isOpposed = chosenEnemy and (chosenEnemy.NextCard ~= nil) and not chosenEnemy.IsStaggered
                         end
-                    else
-                        if Config.AGGRO_FOCUS_FIRE and FocusTargetId then
-                            for _, e in ipairs(enemies) do if e.Id == FocusTargetId then chosenEnemy = e break end end
-                        end
-                        if not chosenEnemy then
-                            table.sort(enemies, function(a, b)
-                                if Config.TARGET_STAGGERED_FIRST and a.IsStaggered ~= b.IsStaggered then return a.IsStaggered end
-                                if a.RemainingThreatScore ~= b.RemainingThreatScore then
-                                    return a.RemainingThreatScore > b.RemainingThreatScore
-                                end
-                                if a.EffectiveHP ~= b.EffectiveHP then return a.EffectiveHP < b.EffectiveHP end
-                                return a.Id < b.Id
-                            end)
-                            chosenEnemy = enemies[1]
-                        end
-                        if chosenEnemy then FocusTargetId = chosenEnemy.Id end
-                        isOpposed = chosenEnemy and (chosenEnemy.NextCard ~= nil) and not chosenEnemy.IsStaggered
                     end
 
                     if not chosenEnemy or not chosenEnemy.Model or not chosenEnemy.Model.Parent then
@@ -1778,7 +1976,10 @@ function Combat.processTurn()
                         pcall(function() Refs.LockOnSystem.setLockOn(chosenEnemy.Model, chosenEnemy.UnitData) end)
                         task.wait(Config.ADVANCED.ActionDelay)
 
-                        local cardToPlay = Combat.selectCardForEnemy(available, chosenEnemy, isOpposed, targetSlot)
+                        if not cardToPlay then
+                            cardToPlay = Combat.selectCardForEnemy(available, chosenEnemy, isOpposed, targetSlot)
+                        end
+
                         if not cardToPlay or playedThisTurn[cardToPlay.AttackId] then
                             turnDone = true
                         else
@@ -2362,7 +2563,6 @@ end
 function Dungeon.AutoNodeThink()
     if Utils.isPlayerDead() then return nil end
 
-    -- 1. Synchronize UI frames & attributes first so Row and Type data are updated
     for _, frame in ipairs(Refs.DungeonNodeContainer:GetChildren()) do
         if frame:IsA("Frame") and frame.Name ~= "Fog" and (frame:FindFirstChild("Confirm") or frame:FindFirstChild("NodeImage")) then
             local rec = State.NodeGraph[frame.Name]
@@ -2387,7 +2587,6 @@ function Dungeon.AutoNodeThink()
         table.insert(ChildrenOf[parentName], childRec)
     end
 
-    -- 2. Map standard Parent -> Child connections via LockedBy
     local parentless = {}
     for _, rec in pairs(State.NodeGraph) do
         if not State.FinishedNodes[rec.Name] then
@@ -2399,7 +2598,6 @@ function Dungeon.AutoNodeThink()
         end
     end
 
-    -- 3. Center Node Branching: Center nodes can transition to ALL nodes on the next row (Upper, Lower, Center)
     for _, rec in pairs(State.NodeGraph) do
         if not State.FinishedNodes[rec.Name] and (rec.Lane == "Center" or rec.Name:find("Center", 1, true)) then
             for _, nextNode in pairs(State.NodeGraph) do
@@ -2410,7 +2608,6 @@ function Dungeon.AutoNodeThink()
         end
     end
 
-    -- 4. Spatial fallback for unlinked parentless nodes (e.g. Start -> Row 1)
     for _, rec in ipairs(parentless) do
         local best, bestDist = nil, math.huge
         for _, other in pairs(State.NodeGraph) do
@@ -2426,7 +2623,6 @@ function Dungeon.AutoNodeThink()
         end
     end
 
-    -- 5. Candidate collection and validation
     local candidates = {}
     for _, rec in pairs(State.NodeGraph) do
         if Dungeon.isNodeSelectable(rec) then
@@ -2453,7 +2649,6 @@ function Dungeon.AutoNodeThink()
     local maxHp = Utils.toNumber(Refs.PlayerStats.MaxHealth) or hp
     local isEmergencyHp = Utils.isBelowThreshold(hp, maxHp, Config.EMERGENCY_REST_HP)
 
-    -- 6. DFS Synergy Evaluation
     local scored = {}
     for _, rec in ipairs(candidates) do
         local sim = Dungeon.bestFutureFrom(rec.Name, Config.ADVANCED.SmartSynergy.MAX_DEPTH)
@@ -3084,17 +3279,17 @@ do
     updateCounterBadge()
     setConsoleVisibility(Config.UI_LAYOUT.ConsoleVisibleOnStart)
 
-    UI.Log("INIT", "Auto-Play v1.6 Loaded.", "#8A5CFF")
+    UI.Log("INIT", "Auto-Play v1.7 Loaded.", "#8A5CFF")
 end
 
 -- =====================================================================
 -- 4. MASTER WORKER LOOPS
 -- =====================================================================
 
--- [Worker 1: Hardened Combat Loop]
+-- [Worker 1: Combat Execution Loop]
 task.spawn(function()
     while true do
-        task.wait(0.1)
+        task.wait(0.15)
         if State.IsBotRunning and State.CombatMode > 0 and not Utils.isPlayerDead() then
             local ok, err = pcall(Combat.processTurn)
             if not ok then
