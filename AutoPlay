@@ -1,6 +1,6 @@
 
 -- =====================================================================
--- AUTO-PLAY CORE
+-- AUTO-PLAY CORE (v1.4)
 -- =====================================================================
 
 local RawConfig = ... or {}
@@ -720,8 +720,7 @@ end
 function Combat.getEnemyCardAt(unitData, slotIndex, ownerId)
     local cards = Combat.getEnemyCards(unitData, ownerId)
     if #cards == 0 then return nil end
-    slotIndex = slotIndex or 1
-    return cards[slotIndex] or cards[#cards]
+    return cards[slotIndex or 1] 
 end
 
 function Combat.getEnemyFirstCard(unitData, ownerId)
@@ -730,16 +729,13 @@ end
 
 function Combat.calculateEnemyIncomingDamage(targetEnemy, slotIndex): number
     if not targetEnemy or not targetEnemy.UnitData then return 0 end
-    local card = slotIndex and Combat.getEnemyCardAt(targetEnemy.UnitData, slotIndex, targetEnemy.Id) or Combat.getEnemyFirstCard(targetEnemy.UnitData, targetEnemy.Id)
+    local card = Combat.getEnemyCardAt(targetEnemy.UnitData, slotIndex, targetEnemy.Id)
+        or Combat.getEnemyFirstCard(targetEnemy.UnitData, targetEnemy.Id)  -- exhausted slot -> live front card, not the last card
     if not card then return 0 end
-
-    if card.IsPureDefense or card.IsDefenseOrEvade or (card.OffensiveCoinCount or 0) == 0 then
-        return 0
-    end
+    if (card.OffensiveCoinCount or 0) == 0 then return 0 end  -- coin-based, not name-based
 
     local playerRes = Combat.getPlayerResistances() or {}
     local totalDamage = 0
-
     for _, coin in ipairs(card.Coins or {}) do
         if coin and coin.IsOffensive then
             local coinPower = (card.BasePower or 0) + (coin.Bonus or 0)
@@ -750,8 +746,7 @@ function Combat.calculateEnemyIncomingDamage(targetEnemy, slotIndex): number
             totalDamage = totalDamage + (coinPower * mult)
         end
     end
-
-    if totalDamage <= 0 and (card.MaxPower or 0) > 0 and not card.IsDefenseOrEvade then
+    if totalDamage <= 0 and (card.MaxPower or 0) > 0 then
         totalDamage = card.MaxPower
     end
     return totalDamage
@@ -934,7 +929,6 @@ function Combat.resetTurnHandTracking()
     end
 end
 
--- Multi-Enemy Queue-Aware Analysis with Turn-Start Gated Draw Detection
 function Combat.getAliveEnemies(timesTargetedMap, notifyDraws)
     timesTargetedMap = timesTargetedMap or {}
     if notifyDraws == nil then
@@ -948,6 +942,36 @@ function Combat.getAliveEnemies(timesTargetedMap, notifyDraws)
     local entitiesFolder = Services.Workspace:FindFirstChild("Entities")
         or Services.Workspace:FindFirstChild("BattleEntities")
         or Services.Workspace:FindFirstChild("Units")
+
+    -- [FIX 3] Coin-based threat classification. parseCardData's name-substring
+    -- check (CARD_DEF_WORDS: "guard", "counter", ...) can flag offensive cards
+    -- like "Counterattack" as defensive. A card is a threat iff it has at
+    -- least one offensive coin.
+    local function isThreatCard(card)
+        return card ~= nil and (card.OffensiveCoinCount or 0) > 0
+    end
+
+    -- [FIX 4] Local threat scoring. Replaces the per-card
+    -- calculateEnemyIncomingDamage() call, which (a) re-parsed the entire hand
+    -- for every card and (b) early-returned 0 for anything flagged
+    -- IsDefenseOrEvade — including the name false-positives above.
+    local function scoreThreatCard(card, playerRes)
+        local total = 0
+        for _, coin in ipairs(card.Coins or {}) do
+            if coin and coin.IsOffensive then
+                local power = (card.BasePower or 0) + (coin.Bonus or 0)
+                local mult = 1.0
+                if coin.DamageType and playerRes[coin.DamageType] then
+                    mult = ResistTable[playerRes[coin.DamageType]] or 1.0
+                end
+                total = total + power * mult
+            end
+        end
+        if total <= 0 and (card.MaxPower or 0) > 0 then
+            total = card.MaxPower
+        end
+        return total
+    end
 
     local function addEnemy(id, unitData, model, frame)
         if not id or id == "" or seenIds[id] then return end
@@ -993,14 +1017,19 @@ function Combat.getAliveEnemies(timesTargetedMap, notifyDraws)
 
         if notifyDraws and LastSeenHandCounts[id] and #allCards > LastSeenHandCounts[id] then
             local drawnCount = #allCards - LastSeenHandCounts[id]
-            UI.Log("DRAW", string.format("%s drew %d card(s) mid-turn (Queue: %d). Re-evaluating threats!", 
+            UI.Log("DRAW", string.format("%s drew %d card(s) mid-turn (Queue: %d). Re-evaluating threats!",
                 rawName, drawnCount, #allCards), "#FFD54F")
         end
         LastSeenHandCounts[id] = #allCards
 
         local staggered = Combat.isEnemyStaggered(unitData, model)
         local targetedCount = timesTargetedMap[id] or 0
-        local nextSlotIndex = targetedCount + 1
+
+        -- [FIX 1] The live front card is ALWAYS the next responder. Consumed
+        -- cards have already been removed from the synced hand by the server,
+        -- so there is no local cursor to advance. TargetedCount is kept purely
+        -- for the caller's focus-fire bookkeeping.
+        local nextSlotIndex = 1
         local nextCard = allCards[nextSlotIndex]
 
         local unaddressedThreats = 0
@@ -1008,11 +1037,15 @@ function Combat.getAliveEnemies(timesTargetedMap, notifyDraws)
         local remainingThreatScore = 0
 
         if not staggered then
-            for idx = nextSlotIndex, #allCards do
+            -- [FIX 2] Scan the ENTIRE live hand. Anything offensive still in it
+            -- is a real, unaddressed threat. (The old scan started at
+            -- targetedCount + 1, skipping live cards on every re-target.)
+            local playerRes = Combat.getPlayerResistances() or {}
+            for idx = 1, #allCards do
                 local c = allCards[idx]
-                if c and not c.IsPureDefense and not c.IsDefenseOrEvade and (c.OffensiveCoinCount or 0) > 0 then
+                if isThreatCard(c) then
                     unaddressedThreats = unaddressedThreats + 1
-                    local score = Combat.calculateEnemyIncomingDamage({ UnitData = unitData, Id = id }, idx)
+                    local score = scoreThreatCard(c, playerRes)
                     remainingThreatScore = remainingThreatScore + score
                     if idx == nextSlotIndex then
                         nextSlotScore = score
@@ -1043,9 +1076,12 @@ function Combat.getAliveEnemies(timesTargetedMap, notifyDraws)
             IsStaggered = staggered,
             Cards = allCards,
             TargetedCount = targetedCount,
-            NextSlotIndex = nextSlotIndex,
-            NextCard = nextCard,
-            IsNextSlotDefensive = (nextCard and nextCard.IsDefenseOrEvade or false),
+            NextSlotIndex = nextSlotIndex,  -- [FIX 1] always 1 (live front card)
+            NextCard = nextCard,            -- [FIX 1] the card that will actually respond
+            -- [FIX 3] coin-aware: true = the front card cannot damage us.
+            -- Mixed cards (attack + guard coins) and "Counterattack"-style
+            -- names are no longer misreported as defensive.
+            IsNextSlotDefensive = (nextCard ~= nil) and not isThreatCard(nextCard),
             IsNextSlotPureDefense = (nextCard and nextCard.IsPureDefense or false),
             UnaddressedThreats = unaddressedThreats,
             NextThreatScore = nextSlotScore,
@@ -1149,9 +1185,9 @@ function Combat.selectCardForEnemy(cardsInHand, targetEnemy, isOpposed, targetSl
     targetSlotIndex = targetSlotIndex or 1
 
     local targetCard = Combat.getEnemyCardAt(targetEnemy.UnitData, targetSlotIndex, targetEnemy.Id)
-    local isTargetSlotDefensive = targetCard and targetCard.IsDefenseOrEvade or false
-    local isTargetSlotPureDefense = targetCard and targetCard.IsPureDefense or false
-    local isTargetSlotOffensive = targetCard and not isTargetSlotDefensive and ((targetCard.OffensiveCoinCount or 0) > 0)
+local isTargetSlotOffensive = targetCard and ((targetCard.OffensiveCoinCount or 0) > 0) or false
+local isTargetSlotPureDefense = targetCard and (not isTargetSlotOffensive) and (targetCard.IsDefenseOrEvade or false)
+local isTargetSlotDefensive = targetCard and not isTargetSlotOffensive
 
     local offensives, defenses = {}, {}
     for _, card in ipairs(cardsInHand) do
@@ -1179,8 +1215,7 @@ function Combat.selectCardForEnemy(cardsInHand, targetEnemy, isOpposed, targetSl
     local canDefend = (#defenses > (Config.KEEP_DEFENSE_RESERVE or 0))
     local safe = canDefend and ((Config.PREFER_EVADE_OVER_GUARD and (bestEvade or bestDefense)) or (bestDefense or bestEvade)) or nil
 
-    -- 1. Truly Unopposed Target
-    if targetEnemy.IsStaggered or (not isTargetSlotOffensive and not isTargetSlotDefensive) then
+if targetEnemy.IsStaggered or (targetCard == nil) then
         if #offensives > 0 then
             local eRes = Combat.getUnitResistances(targetEnemy.UnitData) or {}
             local chosen = offensives[1]
@@ -1541,7 +1576,7 @@ function Combat.processTurn()
                             chosenEnemy = enemies[1]
                         end
                         if chosenEnemy then FocusTargetId = chosenEnemy.Id end
-                        isOpposed = chosenEnemy and chosenEnemy.HandCount >= chosenEnemy.NextSlotIndex and not chosenEnemy.IsStaggered
+                        isOpposed = chosenEnemy and (chosenEnemy.NextCard ~= nil) and not chosenEnemy.IsStaggered
                     end
 
                     if not chosenEnemy or not chosenEnemy.Model or not chosenEnemy.Model.Parent then
@@ -1567,7 +1602,7 @@ function Combat.processTurn()
                                 UI.Log("WARN", string.format("Movement cannot reach %s with %s.", chosenEnemy.Name, cardToPlay.Name), "#FFD54F")
                                 playedThisTurn[cardToPlay.AttackId] = true
                             else
-                                timesTargeted[chosenEnemy.Id] = targetSlot
+                                timesTargeted[chosenEnemy.Id] = (timesTargeted[chosenEnemy.Id] or 0) + 1
                                 local targetId = chosenEnemy.Model:GetAttribute("id") or chosenEnemy.Id
                                 Refs.LocalPlayer:SetAttribute("Active", true)
                                 actionsThisTurn = actionsThisTurn + 1
@@ -2820,7 +2855,7 @@ end
     updateCounterBadge()
     setConsoleVisibility(Config.UI_LAYOUT.ConsoleVisibleOnStart)
 
-    UI.Log("INIT", "Auto-Play v1.3 Loaded.", "#8A5CFF")
+    UI.Log("INIT", "Auto-Play v1.4 Loaded.", "#8A5CFF")
 end
 
 -- =====================================================================
