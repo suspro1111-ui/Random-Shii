@@ -1,122 +1,102 @@
 
 -- =====================================================================
--- AUTO-PLAY CORE (v1.5)
+-- AUTO-PLAY CORE (v1.6)
 -- =====================================================================
 
 local RawConfig = ... or {}
 
+-- Helper to safely extract boolean/value fallbacks
+local function opt(v, fallback) if v ~= nil then return v else return fallback end end
+
 local Config = {
-    -- [Combat & Mode]
-    COMBAT_START_MODE         = RawConfig.COMBAT_START_MODE or 0,
-    AUTO_NODE_ENABLED         = (RawConfig.AUTO_NODE_ENABLED ~= nil) and RawConfig.AUTO_NODE_ENABLED or true,
-    PREFERRED_BRANCH          = RawConfig.PREFERRED_BRANCH or "Smart",
-    BOSS_REQUIRES_MANUAL      = (RawConfig.BOSS_REQUIRES_MANUAL ~= nil) and RawConfig.BOSS_REQUIRES_MANUAL or false,
+    -- [Core Gameplay & Modes]
+    COMBAT_MODE            = RawConfig.COMBAT_MODE or RawConfig.COMBAT_START_MODE or 0, -- 0: Off, 1: Safe, 2: Aggro
+    AUTO_NODE              = opt(RawConfig.AUTO_NODE, opt(RawConfig.AUTO_NODE_ENABLED, true)),
+    AUTO_REWARDS           = opt(RawConfig.AUTO_REWARDS, opt(RawConfig.AUTO_CLAIM_REWARDS, true)),
+    AUTO_EVENTS            = opt(RawConfig.AUTO_EVENTS, opt(RawConfig.AUTO_EVENT_RESOLVER, true)),
+    AUTO_REST              = opt(RawConfig.AUTO_REST, opt(RawConfig.AUTO_CONFIRM_REST, true)),
+    AUTO_BOSS_VOTE         = opt(RawConfig.AUTO_BOSS_VOTE, opt(RawConfig.AUTO_BOSS_VOTE_ENABLED, true)),
+    AUTO_RETRY             = opt(RawConfig.AUTO_RETRY, opt(RawConfig.AUTO_RETRY_ENABLED, true)),
+    STOP_ON_DEATH          = opt(RawConfig.STOP_ON_DEATH, true),
+    BOSS_MANUAL_REQUIRED   = opt(RawConfig.BOSS_MANUAL_REQUIRED, opt(RawConfig.BOSS_REQUIRES_MANUAL, false)),
 
     -- [Combat Tactics]
-    PLAY_LEFTOVER_EVADES      = (RawConfig.PLAY_LEFTOVER_EVADES ~= nil) and RawConfig.PLAY_LEFTOVER_EVADES or false,
-    DEFENSE_SWAP_MAX_RANK     = RawConfig.DEFENSE_SWAP_MAX_RANK or 2,
-    PREFER_EVADE_OVER_GUARD   = (RawConfig.PREFER_EVADE_OVER_GUARD ~= nil) and RawConfig.PREFER_EVADE_OVER_GUARD or true,
-    KEEP_DEFENSE_RESERVE      = RawConfig.KEEP_DEFENSE_RESERVE or 0,
-    LOW_POSTURE_LIMIT         = RawConfig.LOW_POSTURE_LIMIT or 0,
-    TARGET_STAGGERED_FIRST    = (RawConfig.TARGET_STAGGERED_FIRST ~= nil) and RawConfig.TARGET_STAGGERED_FIRST or true,
-    TARGET_KILLABLE_FIRST     = (RawConfig.TARGET_KILLABLE_FIRST ~= nil) and RawConfig.TARGET_KILLABLE_FIRST or true,
-    KILL_MARGIN               = RawConfig.KILL_MARGIN or 1.0,
-    AGGRO_FOCUS_FIRE          = (RawConfig.AGGRO_FOCUS_FIRE ~= nil) and RawConfig.AGGRO_FOCUS_FIRE or true,
-    THREAT_TIEBREAK_SPEED     = (RawConfig.THREAT_TIEBREAK_SPEED ~= nil) and RawConfig.THREAT_TIEBREAK_SPEED or true,
+    TARGET_STAGGERED_FIRST = opt(RawConfig.TARGET_STAGGERED_FIRST, true),
+    TARGET_KILLABLE_FIRST  = opt(RawConfig.TARGET_KILLABLE_FIRST, true),
+    KILL_MARGIN            = RawConfig.KILL_MARGIN or 1.0,
+    AGGRO_FOCUS_FIRE       = opt(RawConfig.AGGRO_FOCUS_FIRE, true),
+    PREFER_EVADE           = opt(RawConfig.PREFER_EVADE, opt(RawConfig.PREFER_EVADE_OVER_GUARD, true)),
+    PLAY_LEFTOVER_EVADES   = opt(RawConfig.PLAY_LEFTOVER_EVADES, false),
+    KEEP_DEFENSE_RESERVE   = RawConfig.KEEP_DEFENSE_RESERVE or 0,
+    DEFENSE_SWAP_MAX_RANK  = RawConfig.DEFENSE_SWAP_MAX_RANK or 2,
+    LOW_POSTURE_LIMIT      = RawConfig.LOW_POSTURE_LIMIT or 0, -- Supports "15%" or flat 15
 
-    -- [E.G.O Threat & Resource Gates]
-    AUTO_USE_EGO              = (RawConfig.AUTO_USE_EGO ~= nil) and RawConfig.AUTO_USE_EGO or false,
-    EGO_USAGE_MODE            = RawConfig.EGO_USAGE_MODE or "Emergency",
-    EGO_MIN_THREAT_DAMAGE     = RawConfig.EGO_MIN_THREAT_DAMAGE or 20,
-    EGO_MIN_THREAT_DAMAGE_PCT = RawConfig.EGO_MIN_THREAT_DAMAGE_PCT or 25,
-    EGO_DYING_THRESHOLD_PCT   = RawConfig.EGO_DYING_THRESHOLD_PCT or 30,
-    EGO_USE_ON_LETHAL         = (RawConfig.EGO_USE_ON_LETHAL ~= nil) and RawConfig.EGO_USE_ON_LETHAL or true,
-    EGO_MIN_POSTURE_LIMIT     = RawConfig.EGO_MIN_POSTURE_LIMIT or 10,
+    -- [E.G.O Logic & Safety Gates]
+    AUTO_USE_EGO           = opt(RawConfig.AUTO_USE_EGO, false),
+    EGO_MODE               = RawConfig.EGO_MODE or RawConfig.EGO_USAGE_MODE or "Emergency", -- "Emergency" or "Always"
+    EGO_MIN_THREAT         = RawConfig.EGO_MIN_THREAT or RawConfig.EGO_MIN_THREAT_DAMAGE_PCT or RawConfig.EGO_MIN_THREAT_DAMAGE or "25%", -- Supports "25%" or flat 20
+    EGO_DYING_HP           = RawConfig.EGO_DYING_HP or RawConfig.EGO_DYING_THRESHOLD_PCT or "30%", -- Supports "30%" or flat 30
+    EGO_MIN_POSTURE        = RawConfig.EGO_MIN_POSTURE or RawConfig.EGO_MIN_POSTURE_LIMIT or 10,
+    EGO_ON_LETHAL          = opt(RawConfig.EGO_ON_LETHAL, opt(RawConfig.EGO_USE_ON_LETHAL, true)),
 
-    -- [Clash Verdict Thresholds]
-    CLASH_OVERWHELM_SCORE     = RawConfig.CLASH_OVERWHELM_SCORE or 4,
-    CLASH_ADVANTAGE_SCORE     = RawConfig.CLASH_ADVANTAGE_SCORE or 0,
-    CLASH_RISKY_SCORE         = RawConfig.CLASH_RISKY_SCORE or -4,
+    -- [Dungeon & Decision Strategies]
+    EMERGENCY_REST_HP      = RawConfig.EMERGENCY_REST_HP or RawConfig.EMERGENCY_REST_HP_PCT or "45%", -- Supports "45%" or flat 45
+    CARD_REWARD_STRATEGY   = RawConfig.CARD_REWARD_STRATEGY or RawConfig.REWARD_CARD_STRATEGY or "HighestRarity", -- "HighestRarity", "Skip"
+    PASSIVE_STRATEGY       = RawConfig.PASSIVE_STRATEGY or RawConfig.REWARD_PASSIVE_STRATEGY or "Priority",       -- "Priority", "Skip"
+    EVENT_STRATEGY         = RawConfig.EVENT_STRATEGY or RawConfig.EVENT_OPTION_STRATEGY or "Guaranteed",         -- "Guaranteed", "Last"
+    BOSS_VOTE_STRATEGY     = RawConfig.BOSS_VOTE_STRATEGY or "Priority",                                          -- "Priority", "Random"
+    CUSTOM_PASSIVE_PRIORITY= RawConfig.CUSTOM_PASSIVE_PRIORITY or {},
+    CUSTOM_EVENT_CHOICES   = RawConfig.CUSTOM_EVENT_CHOICES or {},
+    BOSS_PRIORITY_LIST     = RawConfig.BOSS_PRIORITY_LIST or {},
 
-    -- [Delays & Timing Guards]
-    ACTION_DELAY              = RawConfig.ACTION_DELAY or 0.40,
-    ACTION_POST_DELAY         = RawConfig.ACTION_POST_DELAY or 0.35,
-    CLASH_MAX_TIMEOUT         = RawConfig.CLASH_MAX_TIMEOUT or 12.0,
-    TURN_GRACE_TIME           = RawConfig.TURN_GRACE_TIME or 2.0,
-    MAX_ACTIONS_PER_TURN      = RawConfig.MAX_ACTIONS_PER_TURN or 12,
-    END_TURN_COOLDOWN         = RawConfig.END_TURN_COOLDOWN or 1.0,
-    ENCOUNTER_SYNC_TIMEOUT    = RawConfig.ENCOUNTER_SYNC_TIMEOUT or 8.0,
-    SYNC_LOG_THROTTLE         = RawConfig.SYNC_LOG_THROTTLE or 1.0,
-    SYNC_SETTLE_DELAY         = RawConfig.SYNC_SETTLE_DELAY or 0.2,
-    RESIST_CACHE_TIME         = RawConfig.RESIST_CACHE_TIME or 3.0,
+    -- [Timeouts & Watchdogs]
+    RUN_TIMEOUT            = RawConfig.RUN_TIMEOUT or 3600, -- Seconds (0 to disable)
+    INACTIVITY_TIMEOUT     = RawConfig.INACTIVITY_TIMEOUT or 90, -- Seconds (0 to disable)
 
-    -- [Node & Pathing]
-    NODE_SCAN_INTERVAL        = RawConfig.NODE_SCAN_INTERVAL or 0.4,
-    AUTO_NODE_DELAY           = RawConfig.AUTO_NODE_DELAY or 0.6,
-    EMBARK_RETRY_COOLDOWN     = RawConfig.EMBARK_RETRY_COOLDOWN or 2.5,
-    NODE_STRICT_ROW_LOCK      = (RawConfig.NODE_STRICT_ROW_LOCK ~= nil) and RawConfig.NODE_STRICT_ROW_LOCK or true,
-    NODE_AVOID_USED           = (RawConfig.NODE_AVOID_USED ~= nil) and RawConfig.NODE_AVOID_USED or true,
-
-    -- [Rewards & Passives]
-    AUTO_CLAIM_REWARDS         = (RawConfig.AUTO_CLAIM_REWARDS ~= nil) and RawConfig.AUTO_CLAIM_REWARDS or true,
-    REWARD_SCAN_DELAY          = RawConfig.REWARD_SCAN_DELAY or 0.25,
-    REWARD_ACTION_DELAY        = RawConfig.REWARD_ACTION_DELAY or 0.35,
-    REWARD_FINISH_DELAY        = RawConfig.REWARD_FINISH_DELAY or 0.60,
-    REWARD_CARD_STRATEGY       = RawConfig.REWARD_CARD_STRATEGY or "HighestRarity",
-    REWARD_PASSIVE_STRATEGY    = RawConfig.REWARD_PASSIVE_STRATEGY or "Priority",
-    PASSIVE_DEFAULT_PRIORITY   = RawConfig.PASSIVE_DEFAULT_PRIORITY or 10,
-    CUSTOM_PASSIVE_PRIORITY    = RawConfig.CUSTOM_PASSIVE_PRIORITY or {},
-    AUTO_CLAIM_CONDENSE        = (RawConfig.AUTO_CLAIM_CONDENSE ~= nil) and RawConfig.AUTO_CLAIM_CONDENSE or true,
-
-    -- [Rest Sites]
-    AUTO_CONFIRM_REST          = (RawConfig.AUTO_CONFIRM_REST ~= nil) and RawConfig.AUTO_CONFIRM_REST or true,
-    REST_ACTION                = RawConfig.REST_ACTION or "Heal",
-    REST_ACTION_DELAY          = RawConfig.REST_ACTION_DELAY or 0.45,
-    EMERGENCY_REST_HP_PCT      = RawConfig.EMERGENCY_REST_HP_PCT or 45,
-
-    -- [Event Dialogues]
-    AUTO_EVENT_RESOLVER        = (RawConfig.AUTO_EVENT_RESOLVER ~= nil) and RawConfig.AUTO_EVENT_RESOLVER or true,
-    EVENT_STEP_DELAY           = RawConfig.EVENT_STEP_DELAY or 0.45,
-    EVENT_OPTION_STRATEGY      = RawConfig.EVENT_OPTION_STRATEGY or "Guaranteed",
-    EVENT_ALLOW_RISKY_FALLBACK = (RawConfig.EVENT_ALLOW_RISKY_FALLBACK ~= nil) and RawConfig.EVENT_ALLOW_RISKY_FALLBACK or true,
-    CUSTOM_EVENT_CHOICES       = RawConfig.CUSTOM_EVENT_CHOICES or {},
-
-    -- [Boss Voting]
-    AUTO_BOSS_VOTE_ENABLED     = (RawConfig.AUTO_BOSS_VOTE_ENABLED ~= nil) and RawConfig.AUTO_BOSS_VOTE_ENABLED or true,
-    BOSS_VOTE_STRATEGY         = RawConfig.BOSS_VOTE_STRATEGY or "Priority",
-    BOSS_VOTE_COOLDOWN         = RawConfig.BOSS_VOTE_COOLDOWN or 1.0,
-    BOSS_DEFAULT_PRIORITY      = RawConfig.BOSS_DEFAULT_PRIORITY or 10,
-    BOSS_PRIORITY_LIST         = RawConfig.BOSS_PRIORITY_LIST or {},
-
-    -- [Safety & Failsafe Watchdogs]
-    STOP_ON_DEATH              = (RawConfig.STOP_ON_DEATH ~= nil) and RawConfig.STOP_ON_DEATH or true,
-    AUTO_RETRY_ENABLED         = (RawConfig.AUTO_RETRY_ENABLED ~= nil) and RawConfig.AUTO_RETRY_ENABLED or true,
-    RETRY_DELAY                = RawConfig.RETRY_DELAY or 1.2,
-    ENABLED_RUN_TIMEOUT        = (RawConfig.ENABLED_RUN_TIMEOUT ~= nil) and RawConfig.ENABLED_RUN_TIMEOUT or true,
-    RUN_TIMEOUT                = RawConfig.RUN_TIMEOUT or 3600,
-    ENABLED_INACTIVITY_TIMEOUT = (RawConfig.ENABLED_INACTIVITY_TIMEOUT ~= nil) and RawConfig.ENABLED_INACTIVITY_TIMEOUT or true,
-    INACTIVITY_TIMEOUT         = RawConfig.INACTIVITY_TIMEOUT or 90,
-
-    -- [DFS Pathing Weights]
-    NODE_TYPE_PRIORITIES = RawConfig.NODE_TYPE_PRIORITIES or {
-        ["Treasure"] = 100, ["Rest"] = 80, ["Shop"] = 75, ["Event"] = 70,
-        ["Battle"] = 45, ["EasyBattle"] = 30, ["Boss"] = 20, ["Elite"] = 15
+    -- [Advanced / Pre-tuned Internal Settings]
+    ADVANCED = RawConfig.ADVANCED or {
+        ActionDelay          = 0.40,
+        ActionPostDelay      = 0.35,
+        ClashMaxTimeout      = 12.0,
+        TurnGraceTime        = 2.0,
+        MaxActionsPerTurn    = 12,
+        EndTurnCooldown      = 1.0,
+        EncounterSyncTimeout = 8.0,
+        SyncLogThrottle      = 1.0,
+        SyncSettleDelay      = 0.20,
+        ResistCacheTime      = 3.0,
+        NodeScanInterval     = 0.40,
+        AutoNodeDelay        = 0.60,
+        EmbarkRetryCooldown  = 2.50,
+        RewardScanDelay      = 0.25,
+        RewardActionDelay    = 0.35,
+        RewardFinishDelay    = 0.60,
+        EventStepDelay       = 0.45,
+        RestActionDelay      = 0.45,
+        BossVoteCooldown     = 1.00,
+        RetryDelay           = 1.20,
+        NodeStrictRowLock    = true,
+        NodeAvoidUsed        = true,
+        ClashOverwhelmScore  = 4,
+        ClashAdvantageScore  = 0,
+        ClashRiskyScore      = -4,
+        ThreatTiebreakSpeed  = true,
+        PassiveDefaultPrio   = 10,
+        BossDefaultPrio      = 10,
+        NodePriorities       = {
+            ["Treasure"] = 100, ["Rest"] = 80, ["Shop"] = 75, ["Event"] = 70,
+            ["Battle"] = 45, ["EasyBattle"] = 30, ["Boss"] = 20, ["Elite"] = 15
+        },
+        SmartPathWeights     = {
+            ["Treasure"] = 55, ["Rest"] = 45, ["Event"] = 40, ["Shop"] = 30,
+            ["Battle"] = 10, ["EasyBattle"] = 5, ["Elite"] = -80, ["Boss"] = 0
+        },
+        SmartSynergy         = {
+            VALUABLE_MIN = 25, FULL_SUPPORT = 2, LONE_SUPPORT = 0.35,
+            UNKNOWN_TYPE = 50, MAX_DEPTH = 15
+        },
+        PathVerbose          = true,
     },
-    SMART_PATH_WEIGHTS = RawConfig.SMART_PATH_WEIGHTS or {
-        ["Treasure"] = 55, ["Rest"] = 45, ["Event"] = 40, ["Shop"] = 30,
-        ["Battle"] = 10, ["EasyBattle"] = 5, ["Elite"] = -80, ["Boss"] = 0
-    },
-    SMART_SYNERGY = RawConfig.SMART_SYNERGY or {
-        VALUABLE_MIN = 25, FULL_SUPPORT = 2, LONE_SUPPORT = 0.35,
-        UNKNOWN_TYPE = 50, LANE_TIEBREAK = 0.08, MAX_DEPTH = 15
-    },
-    PATH_VERBOSE   = (RawConfig.PATH_VERBOSE ~= nil) and RawConfig.PATH_VERBOSE or true,
-    PATH_LOG_ROUTE = (RawConfig.PATH_LOG_ROUTE ~= nil) and RawConfig.PATH_LOG_ROUTE or true,
-
-    -- [UI Layout & Theme]
-    MAX_LOG_LINES = RawConfig.MAX_LOG_LINES or 50,
-    ACRYLIC = RawConfig.ACRYLIC or { BlurEnabled = true, Distance = 0.001 },
-    RICH_TEXT_PASSTHROUGH = (RawConfig.RICH_TEXT_PASSTHROUGH ~= nil) and RawConfig.RICH_TEXT_PASSTHROUGH or true,
     UI_LAYOUT = RawConfig.UI_LAYOUT or {
         ToolbarAnchorPoint    = Vector2.new(0.5, 0),
         ToolbarPosition       = UDim2.new(0.5, 0, 0, 8),
@@ -168,9 +148,9 @@ local Services = {
 }
 
 local State = {
-    CombatMode        = Config.COMBAT_START_MODE,
-    IsBotRunning      = Config.COMBAT_START_MODE > 0,
-    IsAutoNodeRunning = Config.AUTO_NODE_ENABLED,
+    CombatMode        = Config.COMBAT_MODE,
+    IsBotRunning      = Config.COMBAT_MODE > 0,
+    IsAutoNodeRunning = Config.AUTO_NODE,
     LastEnemySyncAt   = 0,
     SyncHoldSince     = nil,
     LastLogAt         = os.clock(),
@@ -224,7 +204,7 @@ end
 -- 3. NAMESPACED MODULES
 -- =====================================================================
 local Utils   = {}
-local Acrylic = { Cleanups = {}, BlurInstances = {}, Folder = nil, DOF = nil, Enabled = Config.ACRYLIC.BlurEnabled }
+local Acrylic = { Cleanups = {}, BlurInstances = {}, Folder = nil, DOF = nil, Enabled = true }
 local UI      = {}
 local Combat  = {}
 local Dungeon = {}
@@ -255,7 +235,7 @@ Combat.BuffKeyModifiers = {
 }
 
 -- ---------------------------------------------------------------------
--- UTILITY 
+-- UTILITY FUNCTIONS
 -- ---------------------------------------------------------------------
 
 type Icon = {
@@ -327,6 +307,45 @@ function Utils.toNumber(v)
     if type(v) == "number" then return v end
     if type(v) == "string" then return tonumber(v) end
     return nil
+end
+
+-- Unified Threshold Resolver: Parses "50%", 50, or "50"
+function Utils.resolveThreshold(val, maxVal, defaultVal)
+    if val == nil then val = defaultVal end
+    if type(val) == "string" then
+        local pct = val:match("^(%d+%.?%d*)%%$")
+        if pct then
+            local p = tonumber(pct) or 0
+            return (p / 100) * (maxVal or 100), true, p
+        end
+        local num = tonumber(val)
+        if num then
+            return num, false, (maxVal and maxVal > 0) and ((num / maxVal) * 100) or 0
+        end
+    elseif type(val) == "number" then
+        return val, false, (maxVal and maxVal > 0) and ((val / maxVal) * 100) or 0
+    end
+    return defaultVal or 0, false, 0
+end
+
+function Utils.isBelowThreshold(currentVal, maxVal, threshold)
+    local targetVal, isPct, pct = Utils.resolveThreshold(threshold, maxVal, 0)
+    if isPct then
+        local curPct = (maxVal and maxVal > 0) and ((currentVal / maxVal) * 100) or 0
+        return curPct <= pct
+    else
+        return currentVal <= targetVal
+    end
+end
+
+function Utils.isAboveThreshold(currentVal, maxVal, threshold)
+    local targetVal, isPct, pct = Utils.resolveThreshold(threshold, maxVal, 0)
+    if isPct then
+        local curPct = (maxVal and maxVal > 0) and ((currentVal / maxVal) * 100) or 0
+        return curPct >= pct
+    else
+        return currentVal >= targetVal
+    end
 end
 
 function Utils.isPlayerDead(): boolean
@@ -409,7 +428,7 @@ function Utils.forcePlayerReset()
 end
 
 -- ---------------------------------------------------------------------
--- ACRYLIC CORE 
+-- ACRYLIC CORE
 -- ---------------------------------------------------------------------
 local function mapRange(v, inMin, inMax, outMin, outMax)
     return (v - inMin) * (outMax - outMin) / (inMax - inMin) + outMin
@@ -469,7 +488,7 @@ function Acrylic.SetEnabled(enabled)
 end
 
 function Acrylic.CreateBlur(targetFrame, distance)
-    distance = distance or Config.ACRYLIC.Distance
+    distance = distance or 0.001
     local cleanups = {}
     local positions = { topLeft = Vector2.zero, topRight = Vector2.zero, bottomRight = Vector2.zero }
 
@@ -592,7 +611,7 @@ local function normalizeGrade(v)
 end
 
 function Combat.getPlayerResistances()
-    if State.ResCache.Res and (os.clock() - State.ResCache.At) < Config.RESIST_CACHE_TIME then
+    if State.ResCache.Res and (os.clock() - State.ResCache.At) < Config.ADVANCED.ResistCacheTime then
         return State.ResCache.Res
     end
 
@@ -661,70 +680,6 @@ function Combat.getUnitResistances(unitData)
     }
     for _, t in ipairs(DAMAGE_TYPES) do if not res[t] then res[t] = "Normal" end end
     return res
-end
-
-function Combat.getUnitBuffs(unitData, opts)
-    opts = opts or {}
-    local includeHidden = opts.includeHidden ~= false
-    local includeReady  = opts.includeReady == true
-    local out = {}
-
-    local function harvest(listName)
-        local list = unitData and unitData[listName]
-        if type(list) ~= "table" then return end
-        for key, rawCount in pairs(list) do
-            local count = Utils.toNumber(rawCount) or 0
-            local data = Refs.BuffDB and Refs.BuffDB.loadBuffData(key)
-            if type(data) == "table" and (includeHidden or not data.Hidden) then
-                local stacking = Utils.toNumber(data.StackingBuff)
-                local value = stacking and math.floor(count * stacking) or count
-                local desc = tostring(data.Desc or "")
-                if stacking and desc:find("%%s") then
-                    local okF, formatted = pcall(string.format, desc, value)
-                    if okF then desc = formatted end
-                end
-                table.insert(out, {
-                    Key      = tostring(key),
-                    Name     = data.Name or tostring(key),
-                    Count    = count,
-                    Value    = value,
-                    MaxCount = Utils.toNumber(data.MaxCount),
-                    Polarity = data.Positive or "Neutral",
-                    Hidden   = data.Hidden == true,
-                    Ready    = (listName == "ReadyBuffList"),
-                    Desc     = desc,
-                })
-            elseif type(data) ~= "table" then
-                table.insert(out, {
-                    Key = tostring(key), Name = tostring(key), Count = count, Value = count,
-                    Polarity = "Neutral", Hidden = false,
-                    Ready = (listName == "ReadyBuffList"), Unknown = true,
-                })
-            end
-        end
-    end
-
-    harvest("BuffList")
-    if includeReady then harvest("ReadyBuffList") end
-    return out
-end
-
-function Combat.unitHasBuff(unitData, buffName)
-    local list = unitData and unitData.BuffList
-    if type(list) ~= "table" then return false, 0 end
-
-    local direct = Utils.toNumber(list[buffName])
-    if direct ~= nil then return true, direct end
-
-    local found, total = false, 0
-    for key, rawCount in pairs(list) do
-        local data = Refs.BuffDB and Refs.BuffDB.loadBuffData(key)
-        if type(data) == "table" and data.Name == buffName then
-            found = true
-            total = total + (Utils.toNumber(rawCount) or 0)
-        end
-    end
-    return found, total
 end
 
 local INTENT_DEF_WORDS = { evade = true, guard = true, defend = true, dodge = true }
@@ -798,13 +753,11 @@ function Combat.parseCardData(rawCard, fallbackId, ownerId, slotIndex)
     local offensiveCoins = 0
     for _, c in ipairs(coins) do if c.IsOffensive then offensiveCoins = offensiveCoins + 1 end end
 
-    local defenseFromName = false
     if not isDefense and offensiveCoins == 0 then
         local lowerName = tostring(name):lower()
         for token in lowerName:gmatch("[%a']+") do
             if CARD_DEF_WORDS[token] then
                 isDefense = true
-                defenseFromName = true
                 if defenseKind == nil then
                     defenseKind = (token == "evade" or token == "dodge") and "Evade" or "Guard"
                 end
@@ -891,41 +844,6 @@ function Combat.calculateEnemyIncomingDamage(targetEnemy, slotIndex): number
     return totalDamage
 end
 
-function Combat.estimateEnemyThreat(unitData, ownerId)
-    local res = Combat.getPlayerResistances() or {}
-    local score, offensiveCards, scanned, topCard = 0, 0, 0, 0
-    local profile = {}
-
-    local hand = unitData and unitData.Hand
-    if type(hand) ~= "table" then return 0, 0, 0, 0, profile end
-
-    for _, rawCard in pairs(hand) do
-        local card = Combat.parseCardData(rawCard, nil, ownerId)
-        if card then
-            scanned = scanned + 1
-            if not card.IsPureDefense and not card.IsDefenseOrEvade and (card.OffensiveCoinCount or 0) > 0 then
-                offensiveCards = offensiveCards + 1
-                local cardScore = 0
-                for _, coin in ipairs(card.Coins or {}) do
-                    if coin and coin.IsOffensive then
-                        local power = (card.BasePower or 0) + (coin.Bonus or 0)
-                        if coin.DamageType then
-                            power = power * (ResistTable[res[coin.DamageType]] or 1)
-                            profile[coin.DamageType] = true
-                        end
-                        cardScore = cardScore + power
-                    end
-                end
-                score = score + cardScore
-                if cardScore > topCard then topCard = cardScore end
-            end
-        end
-    end
-
-    return score, offensiveCards, scanned, topCard, profile
-end
-
--- Exact Damage Range with Stagger Fatal Overrides & Dynamic Posture Heads Chance
 function Combat.expectedDamageRange(card, enemyRes, opts)
     if not card then return 0, 0, 0 end
     enemyRes = enemyRes or {}
@@ -991,15 +909,6 @@ function Combat.expectedDamageRange(card, enemyRes, opts)
     local minD = base * generic
     local maxD = (card.MaxPower or base) * generic
     return minD, (minD + maxD) / 2, maxD
-end
-
-function Combat.expectedDamage(card, enemyRes, opts)
-    local minD, avgD, maxD = Combat.expectedDamageRange(card, enemyRes, opts)
-    local mode = (opts and opts.mode) or "avg"
-    if mode == "min" then return minD end
-    if mode == "max" then return maxD end
-    if mode == "range" then return string.format("~%d-%d", math.floor(minD), math.floor(maxD)) end
-    return avgD
 end
 
 function Combat.isEnemyStaggered(unitData, model)
@@ -1308,7 +1217,7 @@ function Combat.getAliveEnemies(timesTargetedMap, notifyDraws)
 end
 
 -- =====================================================================
--- EXACT MARKOV-STATE CLASH SIMULATOR (Dynamic Posture & Multi-Coin DP)
+-- EXACT MARKOV-STATE CLASH SIMULATOR
 -- =====================================================================
 function Combat.simulateClashProbability(playerCard, enemyCard, pM, eM, pPosture, ePosture)
     local pHeads = math.clamp(0.50 + ((pPosture or 0) / 100), 0.05, 0.95)
@@ -1450,11 +1359,11 @@ function Combat.evaluateClash(cardObj, enemy, enemyCard)
 
         if math.max(eBase, eMax) < pBase then 
             return 5, 1000 + score, prediction, "Certain Victory"
-        elseif score > Config.CLASH_OVERWHELM_SCORE then 
+        elseif score > Config.ADVANCED.ClashOverwhelmScore then 
             return 4, 500 + score, prediction, "Overwhelming Advantage"
-        elseif score > Config.CLASH_ADVANTAGE_SCORE then 
+        elseif score > Config.ADVANCED.ClashAdvantageScore then 
             return 3, 200 + score, prediction, "Advantaged"
-        elseif score >= Config.CLASH_RISKY_SCORE then 
+        elseif score >= Config.ADVANCED.ClashRiskyScore then 
             return 2, 50 + score, prediction, "Risky"
         else 
             return 1, score, prediction, "Desperate/Hopeless" 
@@ -1497,7 +1406,7 @@ function Combat.selectCardForEnemy(cardsInHand, targetEnemy, isOpposed, targetSl
     end
 
     local canDefend = (#defenses > (Config.KEEP_DEFENSE_RESERVE or 0))
-    local safe = canDefend and ((Config.PREFER_EVADE_OVER_GUARD and (bestEvade or bestDefense)) or (bestDefense or bestEvade)) or nil
+    local safe = canDefend and ((Config.PREFER_EVADE and (bestEvade or bestDefense)) or (bestDefense or bestEvade)) or nil
 
     if targetEnemy.IsStaggered or (targetCard == nil) then
         if #offensives > 0 then
@@ -1557,26 +1466,22 @@ function Combat.selectCardForEnemy(cardsInHand, targetEnemy, isOpposed, targetSl
     local bestNormal = scored[1]
     local normalIsGood = bestNormal and bestNormal.Rank and bestNormal.Rank > (Config.DEFENSE_SWAP_MAX_RANK or 2)
 
-    if Config.AUTO_USE_EGO and (Config.EGO_USAGE_MODE == "Emergency" or Config.EGO_USAGE_MODE == "Always") then
+    -- Dynamic E.G.O Deployment Evaluation
+    if Config.AUTO_USE_EGO and (Config.EGO_MODE == "Emergency" or Config.EGO_MODE == "Always") then
         local currentPosture = Combat.getPlayerPosture() or 0
         local currentHp = Utils.toNumber(Refs.PlayerStats.Health) or 100
         local maxHp = Utils.toNumber(Refs.PlayerStats.MaxHealth) or currentHp
-        local hpPct = (maxHp > 0) and ((currentHp / maxHp) * 100) or 100
+        local minPostureLimit = Utils.resolveThreshold(Config.EGO_MIN_POSTURE, 100, 10)
 
-        if currentPosture >= (Config.EGO_MIN_POSTURE_LIMIT or 10) then
+        if currentPosture >= minPostureLimit then
             local incomingDamage = Combat.calculateEnemyIncomingDamage(targetEnemy, targetSlotIndex)
-            local incomingPct = (maxHp > 0) and ((incomingDamage / maxHp) * 100) or 0
-
-            local isLethalRisk = Config.EGO_USE_ON_LETHAL and (incomingDamage >= currentHp)
-            local isFlatThreat = (Config.EGO_MIN_THREAT_DAMAGE > 0) and (incomingDamage >= Config.EGO_MIN_THREAT_DAMAGE)
-            local isPctThreat  = (Config.EGO_MIN_THREAT_DAMAGE_PCT > 0) and (incomingPct >= Config.EGO_MIN_THREAT_DAMAGE_PCT)
-
-            local isHighDamage = isFlatThreat or isPctThreat or isLethalRisk
-            local isDying = hpPct <= (Config.EGO_DYING_THRESHOLD_PCT or 30)
+            local isLethalRisk = Config.EGO_ON_LETHAL and (incomingDamage >= currentHp)
+            local isThreat = (incomingDamage > 0) and Utils.isAboveThreshold(incomingDamage, maxHp, Config.EGO_MIN_THREAT)
+            local isDying = Utils.isBelowThreshold(currentHp, maxHp, Config.EGO_DYING_HP)
             local normalCardsBad = not normalIsGood
             local noGuardCard = not safe
 
-            if isHighDamage and ((normalCardsBad and noGuardCard) or isDying or isLethalRisk) then
+            if (isThreat or isLethalRisk or Config.EGO_MODE == "Always") and ((normalCardsBad and noGuardCard) or isDying or isLethalRisk or Config.EGO_MODE == "Always") then
                 local egoCards = Combat.getEGOCards()
                 local egoScored = {}
 
@@ -1595,9 +1500,8 @@ function Combat.selectCardForEnemy(cardsInHand, targetEnemy, isOpposed, targetSl
                 local bestEGO = egoScored[1]
                 if bestEGO and bestEGO.Rank and bestEGO.Rank > (Config.DEFENSE_SWAP_MAX_RANK or 2) then
                     local threatTag = isLethalRisk and "LETHAL RISK"
-                        or (isDying and string.format("DYING: %.1f%% HP", hpPct)
-                        or (isPctThreat and string.format("%.1f%% Max HP", incomingPct)
-                        or string.format("%d Dmg", math.floor(incomingDamage))))
+                        or (isDying and string.format("DYING: %d HP", math.floor(currentHp))
+                        or string.format("%d Threat Dmg", math.floor(incomingDamage)))
 
                     UI.Log("EGO", string.format("Threat (%s from %s Slot #%d) -> Deployed E.G.O: <font color='#FFD54F'><b>%s</b></font> [<b>%s</b>]!",
                         threatTag, targetEnemy.Name or "Enemy", targetSlotIndex, bestEGO.Card.Name or "E.G.O", tostring(bestEGO.Verdict)), "#FFD54F")
@@ -1628,9 +1532,9 @@ function Combat.selectCardForEnemy(cardsInHand, targetEnemy, isOpposed, targetSl
 end
 
 function Combat.tryEndTurn()
-    task.wait(Config.ACTION_DELAY)
+    task.wait(Config.ADVANCED.ActionDelay)
     local endWaitStart = os.clock()
-    while Refs.LocalPlayer:GetAttribute("Active") and (os.clock() - endWaitStart < Config.CLASH_MAX_TIMEOUT) do
+    while Refs.LocalPlayer:GetAttribute("Active") and (os.clock() - endWaitStart < Config.ADVANCED.ClashMaxTimeout) do
         if not Refs.LocalPlayer:GetAttribute("IsYourTurn") or not Refs.CombatGui.Enabled or Utils.isPlayerDead() then break end
         task.wait(0.1)
     end
@@ -1641,7 +1545,7 @@ function Combat.tryEndTurn()
         and Refs.CombatGui.Enabled then
         UI.Log("TURN", "Turn completed. Sending EndTurn request...", "#90A4AE")
         Refs.endTurn:FireServer()
-        task.wait(Config.END_TURN_COOLDOWN)
+        task.wait(Config.ADVANCED.EndTurnCooldown)
     end
 end
 
@@ -1654,7 +1558,7 @@ function Combat.processTurn()
     if not Utils.ableToPlay() then
         if Refs.LocalPlayer:GetAttribute("Active") then
             local clashWait = os.clock()
-            while Refs.LocalPlayer:GetAttribute("Active") and (os.clock() - clashWait < Config.CLASH_MAX_TIMEOUT) do
+            while Refs.LocalPlayer:GetAttribute("Active") and (os.clock() - clashWait < Config.ADVANCED.ClashMaxTimeout) do
                 if not Refs.LocalPlayer:GetAttribute("IsYourTurn") or not Refs.CombatGui.Enabled or Utils.isPlayerDead() then return end
                 task.wait(0.1)
             end
@@ -1668,7 +1572,7 @@ function Combat.processTurn()
 
     if State.SyncHoldSince == nil then State.SyncHoldSince = os.clock() end
     local lastHoldLog, dataFound = 0, false
-    while os.clock() - State.SyncHoldSince < Config.ENCOUNTER_SYNC_TIMEOUT do
+    while os.clock() - State.SyncHoldSince < Config.ADVANCED.EncounterSyncTimeout do
         if Utils.isPlayerDead() then return end
         local enemiesNow = Combat.getAliveEnemies({}, false)
         if #enemiesNow > 0 then
@@ -1680,7 +1584,7 @@ function Combat.processTurn()
             State.SyncHoldSince = nil
             return
         end
-        if os.clock() - lastHoldLog > Config.SYNC_LOG_THROTTLE then
+        if os.clock() - lastHoldLog > Config.ADVANCED.SyncLogThrottle then
             UI.Log("WAIT", string.format("Encounter loading (units: %d). Holding turn...", #enemiesNow), "#FFD54F")
             lastHoldLog = os.clock()
         end
@@ -1688,10 +1592,10 @@ function Combat.processTurn()
     end
 
     State.SyncHoldSince = nil
-    if dataFound and Refs.LocalPlayer:GetAttribute("IsYourTurn") then task.wait(Config.SYNC_SETTLE_DELAY) end
+    if dataFound and Refs.LocalPlayer:GetAttribute("IsYourTurn") then task.wait(Config.ADVANCED.SyncSettleDelay) end
 
     local graceStart = os.clock()
-    while os.clock() - graceStart < Config.TURN_GRACE_TIME do
+    while os.clock() - graceStart < Config.ADVANCED.TurnGraceTime do
         if Utils.isPlayerDead() then return end
         if #Combat.getCardsInHand() > 0 and #Combat.getAliveEnemies({}, false) > 0 then break end
         task.wait(0.1)
@@ -1715,7 +1619,7 @@ function Combat.processTurn()
     Combat.IsTurnExecuting = true
 
     while (not turnDone)
-        and actionsThisTurn < Config.MAX_ACTIONS_PER_TURN
+        and actionsThisTurn < Config.ADVANCED.MaxActionsPerTurn
         and State.IsBotRunning
         and Refs.LocalPlayer:GetAttribute("IsYourTurn")
         and not Utils.isPlayerDead()
@@ -1724,7 +1628,7 @@ function Combat.processTurn()
         if not Utils.ableToPlay() then
             if Refs.LocalPlayer:GetAttribute("Active") then
                 local clashWait = os.clock()
-                while Refs.LocalPlayer:GetAttribute("Active") and (os.clock() - clashWait < Config.CLASH_MAX_TIMEOUT) do
+                while Refs.LocalPlayer:GetAttribute("Active") and (os.clock() - clashWait < Config.ADVANCED.ClashMaxTimeout) do
                     if not Refs.LocalPlayer:GetAttribute("IsYourTurn") or not Refs.CombatGui.Enabled or Utils.isPlayerDead() then
                         turnDone = true
                         break
@@ -1732,7 +1636,7 @@ function Combat.processTurn()
                     task.wait(0.1)
                 end
                 Refs.LocalPlayer:SetAttribute("Active", false)
-                task.wait(Config.ACTION_POST_DELAY)
+                task.wait(Config.ADVANCED.ActionPostDelay)
             else
                 turnDone = true
                 break
@@ -1778,7 +1682,7 @@ function Combat.processTurn()
                                     return a.NextThreatScore > b.NextThreatScore
                                 end
 
-                                if Config.THREAT_TIEBREAK_SPEED and a.Speed ~= b.Speed then
+                                if Config.ADVANCED.ThreatTiebreakSpeed and a.Speed ~= b.Speed then
                                     return a.Speed > b.Speed
                                 end
 
@@ -1789,15 +1693,19 @@ function Combat.processTurn()
                             isOpposed = true
                         else
                             local currentPosture = Combat.getPlayerPosture() or 100
-                            if currentPosture <= Config.LOW_POSTURE_LIMIT then
-                                UI.Log("POSTURE", string.format("Posture (%d) <= Low Posture Limit (%d). Halting extra attacks to conserve posture.",
-                                    math.floor(currentPosture), Config.LOW_POSTURE_LIMIT), "#FFD54F")
+                            local isLowPosture = Utils.isBelowThreshold(currentPosture, 100, Config.LOW_POSTURE_LIMIT)
+
+                            if isLowPosture then
+                                UI.Log("POSTURE", string.format("Posture (%d) <= Limit (%s). Conserving posture.",
+                                    math.floor(currentPosture), tostring(Config.LOW_POSTURE_LIMIT)), "#FFD54F")
                                 turnDone = true
                             else
                                 local affordableCards = {}
+                                local postThreshold = Utils.resolveThreshold(Config.LOW_POSTURE_LIMIT, 100, 0)
+
                                 for _, c in ipairs(available) do
                                     local cost = c.Cost or 0
-                                    if not c.IsDefenseOrEvade and (currentPosture - cost) >= Config.LOW_POSTURE_LIMIT then
+                                    if not c.IsDefenseOrEvade and (currentPosture - cost) >= postThreshold then
                                         table.insert(affordableCards, c)
                                     end
                                 end
@@ -1811,8 +1719,7 @@ function Combat.processTurn()
                                 end
 
                                 if #affordableCards == 0 then
-                                    UI.Log("POSTURE", string.format("No spare attacks affordable without breaching Low Posture Limit (%d). Ending turn.",
-                                        Config.LOW_POSTURE_LIMIT), "#B0BEC5")
+                                    UI.Log("POSTURE", "No spare attacks affordable without breaching Low Posture Limit. Ending turn.", "#B0BEC5")
                                     turnDone = true
                                 else
                                     local targetPool = #spareEnemies > 0 and spareEnemies or enemies
@@ -1869,7 +1776,7 @@ function Combat.processTurn()
                     else
                         local targetSlot = chosenEnemy.NextSlotIndex
                         pcall(function() Refs.LockOnSystem.setLockOn(chosenEnemy.Model, chosenEnemy.UnitData) end)
-                        task.wait(Config.ACTION_DELAY)
+                        task.wait(Config.ADVANCED.ActionDelay)
 
                         local cardToPlay = Combat.selectCardForEnemy(available, chosenEnemy, isOpposed, targetSlot)
                         if not cardToPlay or playedThisTurn[cardToPlay.AttackId] then
@@ -1904,7 +1811,7 @@ function Combat.processTurn()
 
                                 local t0 = os.clock()
                                 task.wait(0.15)
-                                while (os.clock() - t0 < Config.CLASH_MAX_TIMEOUT) do
+                                while (os.clock() - t0 < Config.ADVANCED.ClashMaxTimeout) do
                                     if not Refs.LocalPlayer:GetAttribute("Active") then break end
                                     if not Refs.LocalPlayer:GetAttribute("IsYourTurn") then break end
                                     if not Refs.CombatGui.Enabled or not Refs.HandContainer.Visible then break end
@@ -1913,7 +1820,7 @@ function Combat.processTurn()
                                 end
 
                                 Refs.LocalPlayer:SetAttribute("Active", false)
-                                task.wait(Config.ACTION_POST_DELAY)
+                                task.wait(Config.ADVANCED.ActionPostDelay)
                             end
                         end
                     end
@@ -1942,10 +1849,10 @@ function Combat.isInActiveCombat(): boolean
 end
 
 -- ---------------------------------------------------------------------
--- DUNGEON AUTOMATION 
+-- DUNGEON AUTOMATION
 -- ---------------------------------------------------------------------
 function Dungeon.handleAutoRetry()
-    if not Config.AUTO_RETRY_ENABLED then return false end
+    if not Config.AUTO_RETRY then return false end
     local finishGui = Refs.LocalPlayer.PlayerGui:FindFirstChild("FinishGui")
     if not (finishGui and finishGui.Enabled) then return false end
     local finishContainer = finishGui:FindFirstChild("FinishContainer")
@@ -1955,7 +1862,7 @@ function Dungeon.handleAutoRetry()
     if retryBtn and (retryBtn:IsA("GuiButton") or retryBtn:IsA("TextButton") or retryBtn:IsA("ImageButton")) and retryBtn.Visible then
         UI.Log("RUN", "Run complete detected (FinishGui). Clicking <font color='#FFD54F'><b>Retry</b></font>...", "#FFD54F")
         Utils.fireButtonClick(retryBtn)
-        task.wait(Config.RETRY_DELAY)
+        task.wait(Config.ADVANCED.RetryDelay)
         return true
     end
     return false
@@ -1968,13 +1875,13 @@ function Dungeon.getBossOptionPriority(bossName: string): number
     for name, prio in pairs(Config.BOSS_PRIORITY_LIST) do
         if lower:find(name:lower(), 1, true) or name:lower():find(lower, 1, true) then return prio end
     end
-    return Config.BOSS_DEFAULT_PRIORITY
+    return Config.ADVANCED.BossDefaultPrio
 end
 
 function Dungeon.handleAutoBossVote()
-    if not Config.AUTO_BOSS_VOTE_ENABLED or Utils.isPlayerDead() then return false end
+    if not Config.AUTO_BOSS_VOTE or Utils.isPlayerDead() then return false end
     local now = os.clock()
-    if now - State.LastBossVoteAt < Config.BOSS_VOTE_COOLDOWN then return false end
+    if now - State.LastBossVoteAt < Config.ADVANCED.BossVoteCooldown then return false end
 
     local pickBossFrame = Refs.DungeonGui:FindFirstChild("PickBossFrame")
     if not (pickBossFrame and pickBossFrame.Visible) then return false end
@@ -2032,11 +1939,11 @@ function Dungeon.getPassivePriority(passiveName: string, passiveId: string?): nu
         local nLower = name:lower()
         if lower == nLower or lower:find(nLower, 1, true) or nLower:find(lower, 1, true) then return prio end
     end
-    return Config.PASSIVE_DEFAULT_PRIORITY
+    return Config.ADVANCED.PassiveDefaultPrio
 end
 
 function Dungeon.handleRewards()
-    if not Config.AUTO_CLAIM_REWARDS or Utils.isPlayerDead() then return false end
+    if not Config.AUTO_REWARDS or Utils.isPlayerDead() then return false end
     local rewardFrame = Refs.DungeonGui:FindFirstChild("RewardFrame")
     if not (rewardFrame and rewardFrame.Visible) then return false end
     local container = rewardFrame:FindFirstChild("Container")
@@ -2047,7 +1954,7 @@ function Dungeon.handleRewards()
     local rewardsBtn = container:FindFirstChild("RewardsButton")
 
     local now = os.clock()
-    if now - State.LastRewardActionAt < Config.REWARD_SCAN_DELAY then return false end
+    if now - State.LastRewardActionAt < Config.ADVANCED.RewardScanDelay then return false end
 
     local subRewardButtons = {}
     for i = 1, 3 do
@@ -2074,21 +1981,21 @@ function Dungeon.handleRewards()
         local isActionSub = subRewardButtons[1].AttackId ~= nil
         local isPassiveSub = subRewardButtons[1].PassiveId ~= nil
 
-        if (isActionSub and Config.REWARD_CARD_STRATEGY == "Skip") or (isPassiveSub and Config.REWARD_PASSIVE_STRATEGY == "Skip") then
+        if (isActionSub and Config.CARD_REWARD_STRATEGY == "Skip") or (isPassiveSub and Config.PASSIVE_STRATEGY == "Skip") then
             if skipBtn and skipBtn.Visible then
                 UI.Log("REWARD", "Skipping category selection...", "#B0BEC5")
                 Utils.fireButtonClick(skipBtn)
                 State.LastRewardActionAt = now
-                task.wait(Config.REWARD_ACTION_DELAY)
+                task.wait(Config.ADVANCED.RewardActionDelay)
                 return true
             end
         end
 
-        if isActionSub and Config.REWARD_CARD_STRATEGY == "HighestRarity" then
+        if isActionSub and Config.CARD_REWARD_STRATEGY == "HighestRarity" then
             table.sort(subRewardButtons, function(a, b) return (a.Cost or 0) > (b.Cost or 0) end)
         end
 
-        if isPassiveSub and Config.REWARD_PASSIVE_STRATEGY == "Priority" then
+        if isPassiveSub and Config.PASSIVE_STRATEGY == "Priority" then
             table.sort(subRewardButtons, function(a, b)
                 local aPrio = Dungeon.getPassivePriority(a.Name, a.PassiveId)
                 local bPrio = Dungeon.getPassivePriority(b.Name, b.PassiveId)
@@ -2102,7 +2009,7 @@ function Dungeon.handleRewards()
         UI.Log("REWARD", string.format("Claiming: <font color='#B388FF'><b>%s</b></font>%s", chosenReward.Name, prioTag), "#B388FF")
         Utils.fireButtonClick(chosenReward.Button)
         State.LastRewardActionAt = now
-        task.wait(Config.REWARD_ACTION_DELAY)
+        task.wait(Config.ADVANCED.RewardActionDelay)
         return true
     end
 
@@ -2130,7 +2037,7 @@ function Dungeon.handleRewards()
         UI.Log("REWARD", string.format("Opening: <font color='#FFD54F'><b>%s</b></font>", catText), "#FFD54F")
         Utils.fireButtonClick(targetCategory)
         State.LastRewardActionAt = now
-        task.wait(Config.REWARD_ACTION_DELAY)
+        task.wait(Config.ADVANCED.RewardActionDelay)
         return true
     end
 
@@ -2138,19 +2045,19 @@ function Dungeon.handleRewards()
         UI.Log("REWARD", "All loot claimed. Finalizing Rewards...", "#2ECC71")
         Utils.fireButtonClick(rewardsBtn)
         State.LastRewardActionAt = now
-        task.wait(Config.REWARD_FINISH_DELAY)
+        task.wait(Config.ADVANCED.RewardFinishDelay)
         return true
     end
     return false
 end
 
 function Dungeon.handleRestSite()
-    if not Config.AUTO_CONFIRM_REST or Utils.isPlayerDead() or Config.REST_ACTION ~= "Heal" then return false end
+    if not Config.AUTO_REST or Utils.isPlayerDead() then return false end
     local restContainer = Refs.DungeonGui:FindFirstChild("RestContainer") or Refs.DungeonGui:FindFirstChild("RestFrame")
     if not (restContainer and restContainer.Visible) then return false end
 
     local now = os.clock()
-    if now - State.LastRestActionAt < Config.REST_ACTION_DELAY then return false end
+    if now - State.LastRestActionAt < Config.ADVANCED.RestActionDelay then return false end
 
     local healBtn = nil
     local candidateNames = {"Heal", "HealButton", "HealOption", "Option1", "Option_Heal", "Rest", "RestButton", "Confirm"}
@@ -2181,7 +2088,7 @@ function Dungeon.handleRestSite()
         UI.Log("REST", "Rest site active. Selecting <font color='#2ECC71'><b>Heal</b></font>...", "#2ECC71")
         Utils.fireButtonClick(healBtn)
         State.LastRestActionAt = now
-        task.wait(Config.REST_ACTION_DELAY)
+        task.wait(Config.ADVANCED.RestActionDelay)
 
         local confirmBtn = restContainer:FindFirstChild("Confirm", true) or restContainer:FindFirstChild("Continue", true)
         if confirmBtn and confirmBtn:IsA("TextButton") and confirmBtn.Visible then
@@ -2204,13 +2111,13 @@ function Dungeon.getCustomChoiceForEvent(eventName: string): number?
 end
 
 function Dungeon.processAutoEvent()
-    if not (Config.AUTO_EVENT_RESOLVER and State.IsAutoNodeRunning and Refs.DialogueContainer and Refs.DialogueContainer.Visible) then
+    if not (Config.AUTO_EVENTS and State.IsAutoNodeRunning and Refs.DialogueContainer and Refs.DialogueContainer.Visible) then
         return false
     end
     if Utils.isPlayerDead() then return false end
 
     local now = os.clock()
-    if now - State.LastEventActionAt < Config.EVENT_STEP_DELAY then return false end
+    if now - State.LastEventActionAt < Config.ADVANCED.EventStepDelay then return false end
 
     local container = Refs.DialogueContainer:FindFirstChild("Container")
     if not container then return false end
@@ -2222,7 +2129,7 @@ function Dungeon.processAutoEvent()
             UI.Log("EVENT", "Dismissing Event outcome (Continue)...", "#B0BEC5")
             Utils.fireButtonClick(opt1)
             State.LastEventActionAt = now
-            task.wait(Config.EVENT_STEP_DELAY)
+            task.wait(Config.ADVANCED.EventStepDelay)
             return true
         end
     end
@@ -2251,12 +2158,12 @@ function Dungeon.processAutoEvent()
         chosenIndex = customChoice
     else
         local n = #optionVisible
-        if Config.EVENT_OPTION_STRATEGY == "Last" then
+        if Config.EVENT_STRATEGY == "Last" then
             for i = n, 1, -1 do if optionVisible[i] then chosenIndex = i break end end
-        elseif Config.EVENT_OPTION_STRATEGY == "Guaranteed" then
+        elseif Config.EVENT_STRATEGY == "Guaranteed" then
             for i = 1, n do if optionVisible[i] and optionGuaranteed[i] then chosenIndex = i break end end
         end
-        if not chosenIndex and Config.EVENT_ALLOW_RISKY_FALLBACK then
+        if not chosenIndex then
             for i = 1, n do if optionVisible[i] then chosenIndex = i break end end
         end
     end
@@ -2270,14 +2177,14 @@ function Dungeon.processAutoEvent()
             eventName, chosenIndex, modeTag, title), "#B388FF")
         Utils.fireButtonClick(btn)
         State.LastEventActionAt = now
-        task.wait(Config.EVENT_STEP_DELAY)
+        task.wait(Config.ADVANCED.EventStepDelay)
         return true
     end
     return false
 end
 
 -- ---------------------------------------------------------------------
--- SMART PATHING & GRAPH DFS 
+-- SMART PATHING & GRAPH DFS
 -- ---------------------------------------------------------------------
 local okNodeInfo, NodeInfoMod = pcall(function()
     return require(Services.ReplicatedStorage.ClientModules:WaitForChild("NodeInfo", 5))
@@ -2373,7 +2280,7 @@ function Dungeon.isNodeSelectable(rec)
     if not rec then return false end
     local name = rec.Name
     if State.FinishedNodes[name] then return false end
-    if Config.NODE_AVOID_USED and Refs.PlayerStats.DungeonNodes and Refs.PlayerStats.DungeonNodes[name] then
+    if Config.ADVANCED.NodeAvoidUsed and Refs.PlayerStats.DungeonNodes and Refs.PlayerStats.DungeonNodes[name] then
         State.FinishedNodes[name] = true
         return false
     end
@@ -2382,7 +2289,7 @@ function Dungeon.isNodeSelectable(rec)
     if Utils.toNumber(Refs.PlayerStats.FurthestNodeRow) then
         curRow = math.max(curRow, Utils.toNumber(Refs.PlayerStats.FurthestNodeRow))
     end
-    if Config.NODE_STRICT_ROW_LOCK and curRow > 0 then
+    if Config.ADVANCED.NodeStrictRowLock and curRow > 0 then
         if rec.Row ~= curRow then return false end
     elseif curRow > 0 and rec.Row > curRow then
         return false
@@ -2416,7 +2323,7 @@ local ChildrenOf, simMemo = {}, {}
 local EMPTY_FUTURE = { pos = 0, neg = 0, valuable = 0, raw = 0, via = nil }
 
 function Dungeon.bestFutureFrom(name, depth)
-    depth = depth or Config.SMART_SYNERGY.MAX_DEPTH
+    depth = depth or Config.ADVANCED.SmartSynergy.MAX_DEPTH
     local key = name .. "@" .. depth
     local memo = simMemo[key]
     if memo then return memo end
@@ -2427,11 +2334,11 @@ function Dungeon.bestFutureFrom(name, depth)
     local kids = ChildrenOf[name]
     if kids then
         for _, kid in ipairs(kids) do
-            local w = Config.SMART_PATH_WEIGHTS[kid.Type] or 0
+            local w = Config.ADVANCED.SmartPathWeights[kid.Type] or 0
             local pos, neg, val = 0, 0, 0
             if w >= 0 then
                 pos = w
-                if w >= Config.SMART_SYNERGY.VALUABLE_MIN then val = 1 end
+                if w >= Config.ADVANCED.SmartSynergy.VALUABLE_MIN then val = 1 end
             else
                 neg = w
             end
@@ -2544,18 +2451,18 @@ function Dungeon.AutoNodeThink()
 
     local hp = Utils.toNumber(Refs.PlayerStats.Health) or 100
     local maxHp = Utils.toNumber(Refs.PlayerStats.MaxHealth) or hp
-    local hpPct = (maxHp > 0) and ((hp / maxHp) * 100) or 100
+    local isEmergencyHp = Utils.isBelowThreshold(hp, maxHp, Config.EMERGENCY_REST_HP)
 
     -- 6. DFS Synergy Evaluation
     local scored = {}
     for _, rec in ipairs(candidates) do
-        local sim = Dungeon.bestFutureFrom(rec.Name, Config.SMART_SYNERGY.MAX_DEPTH)
-        local factor = (sim.valuable >= Config.SMART_SYNERGY.FULL_SUPPORT and 1.0)
-            or (sim.valuable == 1 and Config.SMART_SYNERGY.LONE_SUPPORT) or 0.0
-        local imm = Config.NODE_TYPE_PRIORITIES[rec.Type] or Config.SMART_SYNERGY.UNKNOWN_TYPE
-        if rec.Type == "Rest" and hpPct <= Config.EMERGENCY_REST_HP_PCT then
+        local sim = Dungeon.bestFutureFrom(rec.Name, Config.ADVANCED.SmartSynergy.MAX_DEPTH)
+        local factor = (sim.valuable >= Config.ADVANCED.SmartSynergy.FULL_SUPPORT and 1.0)
+            or (sim.valuable == 1 and Config.ADVANCED.SmartSynergy.LONE_SUPPORT) or 0.0
+        local imm = Config.ADVANCED.NodePriorities[rec.Type] or Config.ADVANCED.SmartSynergy.UNKNOWN_TYPE
+        if rec.Type == "Rest" and isEmergencyHp then
             imm = imm + 600
-        elseif rec.Type == "Elite" and hpPct <= Config.EMERGENCY_REST_HP_PCT then
+        elseif rec.Type == "Elite" and isEmergencyHp then
             imm = imm - 200
         end
 
@@ -2573,7 +2480,7 @@ function Dungeon.AutoNodeThink()
     local now = os.clock()
     if winner.rec.Name ~= State.LastDecisionKey or now - State.LastDecisionLogAt > 5 then
         State.LastDecisionKey, State.LastDecisionLogAt = winner.rec.Name, now
-        if Config.PATH_VERBOSE then
+        if Config.ADVANCED.PathVerbose then
             for i, s in ipairs(scored) do
                 UI.Log("PATH", string.format("%s %s [%s] now %d + future %.1f (x%.2f) = <b>%.1f</b>",
                     (i == 1) and ">>" or "  ", s.rec.Name, s.rec.Type, s.imm, s.future, s.factor, s.total),
@@ -2589,8 +2496,8 @@ function Dungeon.embarkToNode(rec)
     if not (rec and rec.Frame and rec.Frame.Parent) then return false end
 
     local now = os.clock()
-    if now - State.LastEmbarkAt < Config.AUTO_NODE_DELAY then return false end
-    if State.LastEmbarkName == rec.Name and now - State.LastEmbarkAt < Config.EMBARK_RETRY_COOLDOWN then return false end
+    if now - State.LastEmbarkAt < Config.ADVANCED.AutoNodeDelay then return false end
+    if State.LastEmbarkName == rec.Name and now - State.LastEmbarkAt < Config.ADVANCED.EmbarkRetryCooldown then return false end
     if not Dungeon.isNodeSelectable(rec) then return false end
 
     local confirmBtn = rec.Frame:FindFirstChild("Confirm")
@@ -2939,7 +2846,7 @@ do
     CounterBadge.Position = UDim2.new(1, -132, 0.5, -8)
     CounterBadge.BackgroundColor3 = Config.THEME.EdgeLight
     CounterBadge.BackgroundTransparency = 0.90
-    CounterBadge.Text = string.format("0/%d", Config.MAX_LOG_LINES)
+    CounterBadge.Text = "0/50"
     CounterBadge.TextColor3 = Config.THEME.SubMuted
     CounterBadge.Font = Enum.Font.GothamMedium
     CounterBadge.TextSize = 9
@@ -3037,10 +2944,10 @@ do
     local function updateCounterBadge()
         local count = 0
         for _, child in ipairs(LogScroll:GetChildren()) do
-            if child:IsA("TextLabel") then count += 1 end
+            if child:IsA("TextLabel") then count = count + 1 end
         end
-        CounterBadge.Text = string.format("%d/%d", count, Config.MAX_LOG_LINES)
-        CounterBadge.TextColor3 = (count >= Config.MAX_LOG_LINES) and Config.THEME.AccentSoft or Config.THEME.SubMuted
+        CounterBadge.Text = string.format("%d/50", count)
+        CounterBadge.TextColor3 = (count >= 50) and Config.THEME.AccentSoft or Config.THEME.SubMuted
     end
 
     LogScroll.ChildAdded:Connect(function(child) if child:IsA("TextLabel") then updateCounterBadge() end end)
@@ -3083,7 +2990,7 @@ do
                 if child:IsA("TextLabel") then table.insert(labels, child) end
             end
             table.sort(labels, function(a, b) return (a.LayoutOrder or 0) < (b.LayoutOrder or 0) end)
-            while #labels > Config.MAX_LOG_LINES do
+            while #labels > 50 do
                 local oldest = table.remove(labels, 1)
                 if oldest then pcall(function() oldest:Destroy() end) end
             end
@@ -3177,7 +3084,7 @@ do
     updateCounterBadge()
     setConsoleVisibility(Config.UI_LAYOUT.ConsoleVisibleOnStart)
 
-    UI.Log("INIT", "Auto-Play v1.5 Loaded.", "#8A5CFF")
+    UI.Log("INIT", "Auto-Play v1.6 Loaded.", "#8A5CFF")
 end
 
 -- =====================================================================
@@ -3201,13 +3108,13 @@ end)
 -- [Worker 2: Dungeon Navigation, Rewards, Events, Rest, Boss & Retry Loop]
 task.spawn(function()
     while true do
-        task.wait(Config.NODE_SCAN_INTERVAL)
+        task.wait(Config.ADVANCED.NodeScanInterval)
 
         local okRetry, resRetry = pcall(Dungeon.handleAutoRetry)
         if not (okRetry and resRetry) then
             local okBoss, resBoss = pcall(Dungeon.handleAutoBossVote)
             if not (okBoss and resBoss) then
-                if State.IsAutoNodeRunning and Config.AUTO_NODE_ENABLED and not Utils.isPlayerDead() then
+                if State.IsAutoNodeRunning and Config.AUTO_NODE and not Utils.isPlayerDead() then
                     local inCombat = Combat.isInActiveCombat()
                     local inTransition = Refs.TransitionGui and Refs.TransitionGui.Enabled
 
@@ -3231,7 +3138,7 @@ task.spawn(function()
                             pcall(function()
                                 local target = Dungeon.AutoNodeThink()
                                 if not target then return end
-                                if Config.BOSS_REQUIRES_MANUAL and target.Type == "Boss" then
+                                if Config.BOSS_MANUAL_REQUIRED and target.Type == "Boss" then
                                     if target.Name ~= State.LastDecisionKey or os.clock() - State.LastDecisionLogAt > 5 then
                                         State.LastDecisionKey, State.LastDecisionLogAt = target.Name, os.clock()
                                         UI.Log("PATH", "Boss row reached — manual embark required.", "#FFD54F")
@@ -3252,7 +3159,7 @@ end)
 task.spawn(function()
     while true do
         task.wait(1.0)
-        if Config.ENABLED_RUN_TIMEOUT and State.IsBotRunning and not Utils.isPlayerDead() then
+        if State.IsBotRunning and not Utils.isPlayerDead() then
             local now = os.clock()
             local runSeconds = Utils.getRunTimeInSeconds()
 
@@ -3260,7 +3167,7 @@ task.spawn(function()
                 UI.Log("TIMEOUT", string.format("Run duration (%d s) exceeded limit (%d s). Resetting player...", runSeconds, Config.RUN_TIMEOUT), "#EB4D4B")
                 Utils.forcePlayerReset()
                 task.wait(3.0)
-            elseif Config.ENABLED_INACTIVITY_TIMEOUT and Config.INACTIVITY_TIMEOUT > 0 and (now - State.LastLogAt >= Config.INACTIVITY_TIMEOUT) then
+            elseif Config.INACTIVITY_TIMEOUT > 0 and (now - State.LastLogAt >= Config.INACTIVITY_TIMEOUT) then
                 local inLoading = (Refs.LocalPlayer.PlayerGui:FindFirstChild("LoadingGui") and Refs.LocalPlayer.PlayerGui.LoadingGui.Enabled)
                 if not inLoading then
                     UI.Log("TIMEOUT", string.format("Inactivity detected (%d s without logs). Resetting player...", math.floor(now - State.LastLogAt)), "#EB4D4B")
