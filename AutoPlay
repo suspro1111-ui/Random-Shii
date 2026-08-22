@@ -29,6 +29,7 @@ local Config = {
     EGO_USAGE_MODE            = RawConfig.EGO_USAGE_MODE or "Emergency",
     EGO_MIN_THREAT_DAMAGE     = RawConfig.EGO_MIN_THREAT_DAMAGE or 20,
     EGO_MIN_THREAT_DAMAGE_PCT = RawConfig.EGO_MIN_THREAT_DAMAGE_PCT or 25,
+    EGO_DYING_THRESHOLD_PCT   = RawConfig.EGO_DYING_THRESHOLD_PCT or 30,
     EGO_USE_ON_LETHAL         = (RawConfig.EGO_USE_ON_LETHAL ~= nil) and RawConfig.EGO_USE_ON_LETHAL or true,
     EGO_MIN_POSTURE_LIMIT     = RawConfig.EGO_MIN_POSTURE_LIMIT or 10,
 
@@ -666,14 +667,28 @@ function Combat.parseCardData(rawCard, fallbackId, ownerId, slotIndex)
         end
     end
 
-    local lowerName = tostring(name):lower()
-    for word in pairs(CARD_DEF_WORDS) do
-        if lowerName:find(word, 1, true) then isDefense = true break end
-    end
+local offensiveCoins = 0
+for _, c in ipairs(coins) do if c.IsOffensive then offensiveCoins = offensiveCoins + 1 end end
 
-    local offensiveCoins = 0
-    for _, c in ipairs(coins) do if c.IsOffensive then offensiveCoins = offensiveCoins + 1 end end
-    if #coins == 0 and not isDefense then offensiveCoins = 1 end
+local defenseFromName = false
+if not isDefense and offensiveCoins == 0 then
+    local lowerName = tostring(name):lower()
+    for token in lowerName:gmatch("[%a']+") do
+        if CARD_DEF_WORDS[token] then
+            isDefense = true
+            defenseFromName = true
+            if defenseKind == nil then
+                defenseKind = (token == "evade" or token == "dodge") and "Evade" or "Guard"
+            end
+            break
+        end
+    end
+    if not isDefense and #coins == 0 then offensiveCoins = 1 end
+end
+
+-- if defenseFromName then
+--     UI.Log("CLASSIFY", string.format("'%s' -> defense via NAME fallback (no coin signal)", tostring(name)), "#FFD54F")
+-- end
 
     local isPureDefense = isDefense and (offensiveCoins == 0)
     local cardUID = (ownerId and slotIndex) and string.format("%s_s%d_%s", tostring(ownerId), slotIndex, tostring(id)) or tostring(id)
@@ -1266,18 +1281,15 @@ if targetEnemy.IsStaggered or (targetCard == nil) then
     end)
 
     local bestNormal = scored[1]
+    -- Determine if the best normal card is actually reliable
+    local normalIsGood = bestNormal and bestNormal.Rank and bestNormal.Rank > (Config.DEFENSE_SWAP_MAX_RANK or 2)
 
-    if bestNormal and bestNormal.Rank and bestNormal.Rank > (Config.DEFENSE_SWAP_MAX_RANK or 2) then
-        UI.Log("PREDICT", string.format("Clash vs %s (Slot #%d: %s) -> <font color='#B388FF'>%s</font> [<b>%s</b>, Score: %d].",
-            targetEnemy.Name or "Enemy", targetSlotIndex, targetCard and targetCard.Name or "Attack", bestNormal.Card.Name or "Action", tostring(bestNormal.Verdict), math.floor(bestNormal.Score or 0)), "#2ECC71")
-        return bestNormal.Card
-    end
-
-    -- Threat-Gated E.G.O Solver
+    -- Threat-Gated E.G.O Solver (Evaluated BEFORE locking in a Normal Card)
     if Config.AUTO_USE_EGO and (Config.EGO_USAGE_MODE == "Emergency" or Config.EGO_USAGE_MODE == "Always") then
         local currentPosture = Combat.getPlayerPosture() or 0
         local currentHp = Utils.toNumber(Refs.PlayerStats.Health) or 100
         local maxHp = Utils.toNumber(Refs.PlayerStats.MaxHealth) or currentHp
+        local hpPct = (maxHp > 0) and ((currentHp / maxHp) * 100) or 100
 
         if currentPosture >= (Config.EGO_MIN_POSTURE_LIMIT or 10) then
             local incomingDamage = Combat.calculateEnemyIncomingDamage(targetEnemy, targetSlotIndex)
@@ -1287,7 +1299,14 @@ if targetEnemy.IsStaggered or (targetCard == nil) then
             local isFlatThreat = (Config.EGO_MIN_THREAT_DAMAGE > 0) and (incomingDamage >= Config.EGO_MIN_THREAT_DAMAGE)
             local isPctThreat  = (Config.EGO_MIN_THREAT_DAMAGE_PCT > 0) and (incomingPct >= Config.EGO_MIN_THREAT_DAMAGE_PCT)
 
-            if isFlatThreat or isPctThreat or isLethalRisk then
+            -- Condition Flags
+            local isHighDamage = isFlatThreat or isPctThreat or isLethalRisk
+            local isDying = hpPct <= (Config.EGO_DYING_THRESHOLD_PCT or 30)
+            local normalCardsBad = not normalIsGood
+            local noGuardCard = not safe
+
+            -- Fire E.G.O if High Damage AND ((Normal Cards suck AND No Guard) OR Player is dying / Lethal)
+            if isHighDamage and ((normalCardsBad and noGuardCard) or isDying or isLethalRisk) then
                 local egoCards = Combat.getEGOCards()
                 local egoScored = {}
 
@@ -1306,8 +1325,9 @@ if targetEnemy.IsStaggered or (targetCard == nil) then
                 local bestEGO = egoScored[1]
                 if bestEGO and bestEGO.Rank and bestEGO.Rank > (Config.DEFENSE_SWAP_MAX_RANK or 2) then
                     local threatTag = isLethalRisk and "LETHAL RISK"
+                        or (isDying and string.format("DYING: %.1f%% HP", hpPct)
                         or (isPctThreat and string.format("%.1f%% Max HP", incomingPct)
-                        or string.format("%d Dmg", math.floor(incomingDamage)))
+                        or string.format("%d Dmg", math.floor(incomingDamage))))
 
                     UI.Log("EGO", string.format("Threat (%s from %s Slot #%d) -> Deployed E.G.O: <font color='#FFD54F'><b>%s</b></font> [<b>%s</b>]!",
                         threatTag, targetEnemy.Name or "Enemy", targetSlotIndex, bestEGO.Card.Name or "E.G.O", tostring(bestEGO.Verdict)), "#FFD54F")
@@ -1315,6 +1335,13 @@ if targetEnemy.IsStaggered or (targetCard == nil) then
                 end
             end
         end
+    end
+
+    -- If no EGO was fired, proceed with standard Normal Card/Defense logic
+    if normalIsGood then
+        UI.Log("PREDICT", string.format("Clash vs %s (Slot #%d: %s) -> <font color='#B388FF'>%s</font> [<b>%s</b>, Score: %d].",
+            targetEnemy.Name or "Enemy", targetSlotIndex, targetCard and targetCard.Name or "Attack", bestNormal.Card.Name or "Action", tostring(bestNormal.Verdict), math.floor(bestNormal.Score or 0)), "#2ECC71")
+        return bestNormal.Card
     end
 
     if bestNormal then
