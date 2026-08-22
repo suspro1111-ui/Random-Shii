@@ -1,6 +1,6 @@
 
 -- =====================================================================
--- AUTO-PLAY CORE (v1.4)
+-- AUTO-PLAY CORE (v1.5)
 -- =====================================================================
 
 local RawConfig = ... or {}
@@ -925,69 +925,6 @@ function Combat.estimateEnemyThreat(unitData, ownerId)
     return score, offensiveCards, scanned, topCard, profile
 end
 
-function Combat.expectedDamageRange(card, enemyRes, opts)
-    if not card then return 0, 0, 0 end
-    enemyRes = enemyRes or {}
-    opts = opts or {}
-    local headsChance = math.clamp(tonumber(opts.headsChance) or 0.5, 0, 1)
-    local mods = opts.mods
-    local base = card.BasePower or 0
-
-    local function coinMult(coin)
-        local mult, dt = 1, coin.DamageType
-        if dt and enemyRes[dt] then
-            mult = ResistTable[enemyRes[dt]] or 1
-        end
-        if dt and mods then
-            mult = mult * (1 + ((mods.DamageInPct or 0) + (mods[dt .. "InPct"] or 0)) / 100)
-        end
-        return mult
-    end
-
-    local coins = (type(card.Coins) == "table") and card.Coins or {}
-    if #coins > 0 then
-        local minD, avgD, maxD = 0, 0, 0
-        local cumAvg, cumMax = 0, 0
-
-        for _, coin in ipairs(coins) do
-            if coin and coin.IsOffensive then
-                local mult = coinMult(coin)
-                local rawBonus = coin.Bonus or 0
-
-                if opts.accumulate then
-                    cumAvg += rawBonus * headsChance
-                    cumMax += rawBonus
-                    minD += base * mult
-                    avgD += (base + cumAvg) * mult
-                    maxD += (base + cumMax) * mult
-                else
-                    local hitBase = base * mult
-                    local heads = hitBase + rawBonus * mult
-                    minD += math.min(hitBase, heads)
-                    maxD += math.max(hitBase, heads)
-                    avgD += hitBase + rawBonus * headsChance * mult
-                end
-            end
-        end
-        return minD, avgD, maxD
-    end
-
-    if card.IsDefenseOrEvade then return 0, 0, 0 end
-    local generic = 1
-    if mods then generic = 1 + (mods.DamageInPct or 0) / 100 end
-    local minD = base * generic
-    local maxD = (card.MaxPower or base) * generic
-    return minD, (minD + maxD) / 2, maxD
-end
-
-function Combat.expectedDamage(card, enemyRes, opts)
-    local minD, avgD, maxD = Combat.expectedDamageRange(card, enemyRes, opts)
-    local mode = (opts and opts.mode) or "avg"
-    if mode == "min" then return minD end
-    if mode == "max" then return maxD end
-    return avgD
-end
-
 function Combat.isEnemyStaggered(unitData, model)
     local targetModel = model or (unitData and unitData.Model)
     if not targetModel then return false end
@@ -1013,6 +950,78 @@ function Combat.isEnemyStaggered(unitData, model)
     end
 
     return false
+end
+
+function Combat.expectedDamageRange(card, enemyRes, opts)
+    if not card then return 0, 0, 0 end
+    enemyRes = enemyRes or {}
+    opts = opts or {}
+    local headsChance = math.clamp(tonumber(opts.headsChance) or 0.5, 0, 1)
+    local mods = opts.mods
+    local base = card.BasePower or 0
+    local isStaggered = opts.isStaggered == true
+    local fatalMult = ResistTable["Fatal"] or 2.0
+
+    local function coinMult(coin)
+        local mult = 1
+        local dt = coin and coin.DamageType
+
+        if isStaggered then
+            mult = fatalMult
+        elseif dt and enemyRes[dt] then
+            mult = ResistTable[enemyRes[dt]] or 1
+        end
+
+        if mods then
+            local typeInPct = (dt and mods[dt .. "InPct"]) or 0
+            mult = mult * (1 + ((mods.DamageInPct or 0) + typeInPct) / 100)
+        end
+        return mult
+    end
+
+    local coins = (type(card.Coins) == "table") and card.Coins or {}
+    if #coins > 0 then
+        local minD, avgD, maxD = 0, 0, 0
+        local cumAvg, cumMax = 0, 0
+
+        for _, coin in ipairs(coins) do
+            if coin and coin.IsOffensive then
+                local mult = coinMult(coin)
+                local rawBonus = coin.Bonus or 0
+
+                if opts.accumulate then
+                    cumAvg = cumAvg + (rawBonus * headsChance)
+                    cumMax = cumMax + rawBonus
+                    minD = minD + (base * mult)
+                    avgD = avgD + ((base + cumAvg) * mult)
+                    maxD = maxD + ((base + cumMax) * mult)
+                else
+                    local hitBase = base * mult
+                    local heads = hitBase + rawBonus * mult
+                    minD = minD + math.min(hitBase, heads)
+                    maxD = maxD + math.max(hitBase, heads)
+                    avgD = avgD + (hitBase + rawBonus * headsChance * mult)
+                end
+            end
+        end
+        return minD, avgD, maxD
+    end
+
+    if card.IsDefenseOrEvade then return 0, 0, 0 end
+    local generic = isStaggered and fatalMult or 1
+    if mods then generic = generic * (1 + (mods.DamageInPct or 0) / 100) end
+    local minD = base * generic
+    local maxD = (card.MaxPower or base) * generic
+    return minD, (minD + maxD) / 2, maxD
+end
+
+function Combat.expectedDamage(card, enemyRes, opts)
+    local minD, avgD, maxD = Combat.expectedDamageRange(card, enemyRes, opts)
+    local mode = (opts and opts.mode) or "avg"
+    if mode == "min" then return minD end
+    if mode == "max" then return maxD end
+    if mode == "range" then return string.format("~%d-%d", math.floor(minD), math.floor(maxD)) end
+    return avgD
 end
 
 function Combat.getPlayerPosture()
@@ -1380,34 +1389,33 @@ function Combat.selectCardForEnemy(cardsInHand, targetEnemy, isOpposed, targetSl
             local eRes = Combat.getUnitResistances(targetEnemy.UnitData) or {}
             local chosen = offensives[1]
             local chosenDmg = -1
+            local chosenMin = 0
+            local chosenMax = 0
 
             for _, c in ipairs(offensives) do
                 if c then
-                    local d = Combat.expectedDamage(c, eRes)
-                    if d > chosenDmg then 
+                    local minD, avgD, maxD = Combat.expectedDamageRange(c, eRes, {
+                        isStaggered = targetEnemy.IsStaggered,
+                        mods = targetEnemy.Mods,
+                    })
+                    if avgD > chosenDmg then 
                         chosen = c
-                        chosenDmg = d 
+                        chosenDmg = avgD
+                        chosenMin = minD
+                        chosenMax = maxD
                     end
                 end
             end
 
             if chosen then
-                UI.Log("THINK", string.format("Target %s is %s on Slot #%d. Best damage: <font color='#B388FF'>%s</font> (~%d Dmg).",
-                    targetEnemy.Name or "Enemy", targetEnemy.IsStaggered and "STAGGERED" or "UNOPPOSED", targetSlotIndex, chosen.Name or "Action", math.floor(math.max(0, chosenDmg))), "#B0BEC5")
+                UI.Log("THINK", string.format("Target %s is %s on Slot #%d. Best damage: <font color='#B388FF'>%s</font> (~%d-%d Dmg).",
+                    targetEnemy.Name or "Enemy", targetEnemy.IsStaggered and "STAGGERED" or "UNOPPOSED", targetSlotIndex, chosen.Name or "Action", math.floor(chosenMin), math.floor(chosenMax)), "#B0BEC5")
                 return chosen
             end
         end
+        
         if Config.PLAY_LEFTOVER_EVADES and bestEvade then return bestEvade end
         return bestDefense
-    end
-
-    if isTargetSlotPureDefense or isTargetSlotDefensive then
-        UI.Log("THINK", string.format("Target %s Slot #%d is Pure Guard (<font color='#CE93D8'>%s</font>).",
-            targetEnemy.Name or "Enemy", targetSlotIndex, targetCard and targetCard.Name or "Defense"), "#90A4AE")
-        
-        if canDefend and (bestEvade or bestDefense) then return (bestEvade or bestDefense) end
-        if #offensives > 0 then return offensives[#offensives] end
-        return safe or bestDefense
     end
 
     local scored = {}
@@ -3007,7 +3015,7 @@ end
     updateCounterBadge()
     setConsoleVisibility(Config.UI_LAYOUT.ConsoleVisibleOnStart)
 
-    UI.Log("INIT", "Auto-Play v1.4 Loaded.", "#8A5CFF")
+    UI.Log("INIT", "Auto-Play v1.5 Loaded.", "#8A5CFF")
 end
 
 -- =====================================================================
