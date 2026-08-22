@@ -38,7 +38,7 @@ local Config = {
     CLASH_ADVANTAGE_SCORE     = RawConfig.CLASH_ADVANTAGE_SCORE or 0,
     CLASH_RISKY_SCORE         = RawConfig.CLASH_RISKY_SCORE or -4,
 
-    -- [ Delays & Timing Guards]
+    -- [Delays & Timing Guards]
     ACTION_DELAY              = RawConfig.ACTION_DELAY or 0.40,
     ACTION_POST_DELAY         = RawConfig.ACTION_POST_DELAY or 0.35,
     CLASH_MAX_TIMEOUT         = RawConfig.CLASH_MAX_TIMEOUT or 12.0,
@@ -50,7 +50,7 @@ local Config = {
     SYNC_SETTLE_DELAY         = RawConfig.SYNC_SETTLE_DELAY or 0.2,
     RESIST_CACHE_TIME         = RawConfig.RESIST_CACHE_TIME or 3.0,
 
-    -- [Node & Pathing ]
+    -- [Node & Pathing]
     NODE_SCAN_INTERVAL        = RawConfig.NODE_SCAN_INTERVAL or 0.4,
     AUTO_NODE_DELAY           = RawConfig.AUTO_NODE_DELAY or 0.6,
     EMBARK_RETRY_COOLDOWN     = RawConfig.EMBARK_RETRY_COOLDOWN or 2.5,
@@ -199,6 +199,7 @@ local Refs = {
     CombatGui          = Services.Players.LocalPlayer.PlayerGui:WaitForChild("CombatGui"),
     DungeonGui         = Services.Players.LocalPlayer.PlayerGui:WaitForChild("DungeonGui"),
     TransitionGui      = Services.Players.LocalPlayer.PlayerGui:WaitForChild("TransitionGui"),
+    BuffDB             = nil,
 }
 
 Refs.HandContainer        = Refs.CombatGui:WaitForChild("Hand")
@@ -209,7 +210,6 @@ Refs.playAttack           = Refs.Events:WaitForChild("playAttack")
 Refs.playEGOAttack        = Refs.Events:WaitForChild("playEGOAttack")
 Refs.endTurn              = Refs.Events:WaitForChild("EndTurn")
 Refs.clashPredictor       = Refs.Events:WaitForChild("ClashPredictor")
-Refs.BuffDB = nil
 
 do
     local ok, mod = pcall(function()
@@ -234,7 +234,7 @@ Combat.BuffModifiers = {
     ["Clash Power Down"]   = function(v, m) m.ClashPower   = m.ClashPower   - v  end,
     ["Offensive Power Up"] = function(v, m) m.FinalPower   = m.FinalPower   + v  end,
     ["Defensive Power Up"] = function(v, m) m.DefPower     = m.DefPower     + v  end,
-    ["Offense Level Down"] = function(v, m) m.DamageOutPct = m.DamageOutPct - v  end, 
+    ["Offense Level Down"] = function(v, m) m.DamageOutPct = m.DamageOutPct - v  end,
     ["Hyped-up"]           = function(v, m) m.DamageOutPct = m.DamageOutPct + v  end,
     ["Fragility"]          = function(v, m) m.DamageInPct  = m.DamageInPct  + v  end,
     ["Protected"]          = function(v, m) m.DamageInPct  = m.DamageInPct  - v  end,
@@ -559,7 +559,7 @@ end
 Acrylic.Init()
 
 -- ---------------------------------------------------------------------
--- RESISTANCES & COMBAT DATA
+-- RESISTANCES, BUFFS & COMBAT DATA
 -- ---------------------------------------------------------------------
 local DAMAGE_TYPES = { "Slash", "Stab", "Strike" }
 local DAMAGE_TYPE_ALIAS = { Slash = "Slash", Stab = "Stab", Strike = "Strike", Pierce = "Stab", Blunt = "Strike" }
@@ -663,6 +663,70 @@ function Combat.getUnitResistances(unitData)
     return res
 end
 
+function Combat.getUnitBuffs(unitData, opts)
+    opts = opts or {}
+    local includeHidden = opts.includeHidden ~= false
+    local includeReady  = opts.includeReady == true
+    local out = {}
+
+    local function harvest(listName)
+        local list = unitData and unitData[listName]
+        if type(list) ~= "table" then return end
+        for key, rawCount in pairs(list) do
+            local count = Utils.toNumber(rawCount) or 0
+            local data = Refs.BuffDB and Refs.BuffDB.loadBuffData(key)
+            if type(data) == "table" and (includeHidden or not data.Hidden) then
+                local stacking = Utils.toNumber(data.StackingBuff)
+                local value = stacking and math.floor(count * stacking) or count
+                local desc = tostring(data.Desc or "")
+                if stacking and desc:find("%%s") then
+                    local okF, formatted = pcall(string.format, desc, value)
+                    if okF then desc = formatted end
+                end
+                table.insert(out, {
+                    Key      = tostring(key),
+                    Name     = data.Name or tostring(key),
+                    Count    = count,
+                    Value    = value,
+                    MaxCount = Utils.toNumber(data.MaxCount),
+                    Polarity = data.Positive or "Neutral",
+                    Hidden   = data.Hidden == true,
+                    Ready    = (listName == "ReadyBuffList"),
+                    Desc     = desc,
+                })
+            elseif type(data) ~= "table" then
+                table.insert(out, {
+                    Key = tostring(key), Name = tostring(key), Count = count, Value = count,
+                    Polarity = "Neutral", Hidden = false,
+                    Ready = (listName == "ReadyBuffList"), Unknown = true,
+                })
+            end
+        end
+    end
+
+    harvest("BuffList")
+    if includeReady then harvest("ReadyBuffList") end
+    return out
+end
+
+function Combat.unitHasBuff(unitData, buffName)
+    local list = unitData and unitData.BuffList
+    if type(list) ~= "table" then return false, 0 end
+
+    local direct = Utils.toNumber(list[buffName])
+    if direct ~= nil then return true, direct end
+
+    local found, total = false, 0
+    for key, rawCount in pairs(list) do
+        local data = Refs.BuffDB and Refs.BuffDB.loadBuffData(key)
+        if type(data) == "table" and data.Name == buffName then
+            found = true
+            total = total + (Utils.toNumber(rawCount) or 0)
+        end
+    end
+    return found, total
+end
+
 local INTENT_DEF_WORDS = { evade = true, guard = true, defend = true, dodge = true }
 local CARD_DEF_WORDS = { evade = true, dodge = true, guard = true, defend = true, shield = true, rewind = true, counter = true }
 
@@ -731,24 +795,24 @@ function Combat.parseCardData(rawCard, fallbackId, ownerId, slotIndex)
         end
     end
 
-local offensiveCoins = 0
-for _, c in ipairs(coins) do if c.IsOffensive then offensiveCoins = offensiveCoins + 1 end end
+    local offensiveCoins = 0
+    for _, c in ipairs(coins) do if c.IsOffensive then offensiveCoins = offensiveCoins + 1 end end
 
-local defenseFromName = false
-if not isDefense and offensiveCoins == 0 then
-    local lowerName = tostring(name):lower()
-    for token in lowerName:gmatch("[%a']+") do
-        if CARD_DEF_WORDS[token] then
-            isDefense = true
-            defenseFromName = true
-            if defenseKind == nil then
-                defenseKind = (token == "evade" or token == "dodge") and "Evade" or "Guard"
+    local defenseFromName = false
+    if not isDefense and offensiveCoins == 0 then
+        local lowerName = tostring(name):lower()
+        for token in lowerName:gmatch("[%a']+") do
+            if CARD_DEF_WORDS[token] then
+                isDefense = true
+                defenseFromName = true
+                if defenseKind == nil then
+                    defenseKind = (token == "evade" or token == "dodge") and "Evade" or "Guard"
+                end
+                break
             end
-            break
         end
+        if not isDefense and #coins == 0 then offensiveCoins = 1 end
     end
-    if not isDefense and #coins == 0 then offensiveCoins = 1 end
-end
 
     local isPureDefense = isDefense and (offensiveCoins == 0)
     local cardUID = (ownerId and slotIndex) and string.format("%s_s%d_%s", tostring(ownerId), slotIndex, tostring(id)) or tostring(id)
@@ -805,7 +869,7 @@ end
 function Combat.calculateEnemyIncomingDamage(targetEnemy, slotIndex): number
     if not targetEnemy or not targetEnemy.UnitData then return 0 end
     local card = Combat.getEnemyCardAt(targetEnemy.UnitData, slotIndex, targetEnemy.Id)
-        or Combat.getEnemyFirstCard(targetEnemy.UnitData, targetEnemy.Id) 
+        or Combat.getEnemyFirstCard(targetEnemy.UnitData, targetEnemy.Id)
     if not card then return 0 end
     if (card.OffensiveCoinCount or 0) == 0 then return 0 end
 
@@ -825,70 +889,6 @@ function Combat.calculateEnemyIncomingDamage(targetEnemy, slotIndex): number
         totalDamage = card.MaxPower
     end
     return totalDamage
-end
-
-function Combat.getUnitBuffs(unitData, opts)
-    opts = opts or {}
-    local includeHidden = opts.includeHidden ~= false
-    local includeReady  = opts.includeReady == true
-    local out = {}
-
-    local function harvest(listName)
-        local list = unitData and unitData[listName]
-        if type(list) ~= "table" then return end
-        for key, rawCount in pairs(list) do
-            local count = Utils.toNumber(rawCount) or 0
-            local data = Refs.BuffDB and Refs.BuffDB.loadBuffData(key)
-            if type(data) == "table" and (includeHidden or not data.Hidden) then
-                local stacking = Utils.toNumber(data.StackingBuff)
-                local value = stacking and math.floor(count * stacking) or count
-                local desc = tostring(data.Desc or "")
-                if stacking and desc:find("%%s") then
-                    local okF, formatted = pcall(string.format, desc, value)
-                    if okF then desc = formatted end
-                end
-                table.insert(out, {
-                    Key      = tostring(key),
-                    Name     = data.Name or tostring(key),
-                    Count    = count,
-                    Value    = value,
-                    MaxCount = Utils.toNumber(data.MaxCount),
-                    Polarity = data.Positive or "Neutral",
-                    Hidden   = data.Hidden == true,
-                    Ready    = (listName == "ReadyBuffList"),
-                    Desc     = desc,
-                })
-            elseif type(data) ~= "table" then
-                table.insert(out, {
-                    Key = tostring(key), Name = tostring(key), Count = count, Value = count,
-                    Polarity = "Neutral", Hidden = false,
-                    Ready = (listName == "ReadyBuffList"), Unknown = true,
-                })
-            end
-        end
-    end
-
-    harvest("BuffList")
-    if includeReady then harvest("ReadyBuffList") end
-    return out
-end
-
-function Combat.unitHasBuff(unitData, buffName)
-    local list = unitData and unitData.BuffList
-    if type(list) ~= "table" then return false, 0 end
-
-    local direct = Utils.toNumber(list[buffName])
-    if direct ~= nil then return true, direct end
-
-    local found, total = false, 0
-    for key, rawCount in pairs(list) do
-        local data = Refs.BuffDB and Refs.BuffDB.loadBuffData(key)
-        if type(data) == "table" and data.Name == buffName then
-            found = true
-            total = total + (Utils.toNumber(rawCount) or 0)
-        end
-    end
-    return found, total
 end
 
 function Combat.estimateEnemyThreat(unitData, ownerId)
@@ -925,38 +925,16 @@ function Combat.estimateEnemyThreat(unitData, ownerId)
     return score, offensiveCards, scanned, topCard, profile
 end
 
-function Combat.isEnemyStaggered(unitData, model)
-    local targetModel = model or (unitData and unitData.Model)
-    if not targetModel then return false end
-
-    local staggerFrames = Refs.CombatGui:FindFirstChild("StaggerFrames")
-    if staggerFrames then
-        local staggerTemplate = staggerFrames:FindFirstChild("StaggerTemplate")
-        if staggerTemplate and staggerTemplate:IsA("BillboardGui") and staggerTemplate.Enabled and staggerTemplate.Adornee then
-            local adornee = staggerTemplate.Adornee
-            if adornee == targetModel or adornee:IsDescendantOf(targetModel) then
-                return true
-            end
-        end
-
-        for _, frame in ipairs(staggerFrames:GetChildren()) do
-            if frame:IsA("BillboardGui") and frame.Enabled and frame.Adornee then
-                local adornee = frame.Adornee
-                if adornee == targetModel or adornee:IsDescendantOf(targetModel) then
-                    return true
-                end
-            end
-        end
-    end
-
-    return false
-end
-
+-- Exact Damage Range with Stagger Fatal Overrides & Dynamic Posture Heads Chance
 function Combat.expectedDamageRange(card, enemyRes, opts)
     if not card then return 0, 0, 0 end
     enemyRes = enemyRes or {}
     opts = opts or {}
-    local headsChance = math.clamp(tonumber(opts.headsChance) or 0.5, 0, 1)
+
+    local pPosture = Combat.getPlayerPosture() or 0
+    local defaultHeads = math.clamp(0.50 + (pPosture / 100), 0.05, 0.95)
+    local headsChance = math.clamp(tonumber(opts.headsChance) or defaultHeads, 0.05, 0.95)
+
     local mods = opts.mods
     local base = card.BasePower or 0
     local isStaggered = opts.isStaggered == true
@@ -1022,6 +1000,33 @@ function Combat.expectedDamage(card, enemyRes, opts)
     if mode == "max" then return maxD end
     if mode == "range" then return string.format("~%d-%d", math.floor(minD), math.floor(maxD)) end
     return avgD
+end
+
+function Combat.isEnemyStaggered(unitData, model)
+    local targetModel = model or (unitData and unitData.Model)
+    if not targetModel then return false end
+
+    local staggerFrames = Refs.CombatGui:FindFirstChild("StaggerFrames")
+    if staggerFrames then
+        local staggerTemplate = staggerFrames:FindFirstChild("StaggerTemplate")
+        if staggerTemplate and staggerTemplate:IsA("BillboardGui") and staggerTemplate.Enabled and staggerTemplate.Adornee then
+            local adornee = staggerTemplate.Adornee
+            if adornee == targetModel or adornee:IsDescendantOf(targetModel) then
+                return true
+            end
+        end
+
+        for _, frame in ipairs(staggerFrames:GetChildren()) do
+            if frame:IsA("BillboardGui") and frame.Enabled and frame.Adornee then
+                local adornee = frame.Adornee
+                if adornee == targetModel or adornee:IsDescendantOf(targetModel) then
+                    return true
+                end
+            end
+        end
+    end
+
+    return false
 end
 
 function Combat.getPlayerPosture()
@@ -1180,6 +1185,7 @@ function Combat.getAliveEnemies(timesTargetedMap, notifyDraws)
         local maxHealth = Utils.toNumber(unitData and unitData.MaxHealth) or (hum and hum.MaxHealth) or health
         local tempHealth = Utils.toNumber(unitData and unitData.TempHealth) or 0
         local speed = Utils.toNumber(unitData and unitData.Speed) or 0
+        local posture = Utils.toNumber(unitData and unitData.Posture) or 0
 
         local allCards = Combat.getEnemyCards(unitData, id)
         local handCount, handKnown = #allCards, (unitData and type(unitData.Hand) == "table")
@@ -1243,6 +1249,7 @@ function Combat.getAliveEnemies(timesTargetedMap, notifyDraws)
             TempHealth = tempHealth,
             EffectiveHP = health + tempHealth,
             Speed = speed,
+            Posture = posture,
             Mods = Combat.getUnitModifiers(unitData),
             IsStaggered = staggered,
             Cards = allCards,
@@ -1300,30 +1307,131 @@ function Combat.getAliveEnemies(timesTargetedMap, notifyDraws)
     return enemies
 end
 
+-- =====================================================================
+-- EXACT MARKOV-STATE CLASH SIMULATOR (Dynamic Posture & Multi-Coin DP)
+-- =====================================================================
+function Combat.simulateClashProbability(playerCard, enemyCard, pM, eM, pPosture, ePosture)
+    local pHeads = math.clamp(0.50 + ((pPosture or 0) / 100), 0.05, 0.95)
+    local eHeads = math.clamp(0.50 + ((ePosture or 0) / 100), 0.05, 0.95)
+
+    pM = pM or { ClashPower = 0, FinalPower = 0, IntentPower = 0 }
+    eM = eM or { ClashPower = 0, FinalPower = 0, IntentPower = 0 }
+
+    local pBase = (playerCard.BasePower or 0) + (pM.ClashPower or 0) + (pM.FinalPower or 0)
+    local eBase = (enemyCard.BasePower or 0) + (eM.ClashPower or 0) + (eM.FinalPower or 0)
+
+    local pCoins = (type(playerCard.Coins) == "table") and playerCard.Coins or {}
+    local eCoins = (type(enemyCard.Coins) == "table") and enemyCard.Coins or {}
+
+    local pCoinCount = math.max(1, #pCoins)
+    local eCoinCount = math.max(1, #eCoins)
+
+    if #pCoins == 0 then pCoins = { { Bonus = playerCard.BonusSum or 0 } } end
+    if #eCoins == 0 then eCoins = { { Bonus = enemyCard.BonusSum or 0 } } end
+
+    local function getDistribution(baseVal, coinsList, activeCount, intentBonus, headsRate)
+        local count = math.min(activeCount, #coinsList)
+        local totalCombinations = 2 ^ count
+        local dist = {}
+
+        for mask = 0, totalCombinations - 1 do
+            local power = baseVal
+            local prob = 1.0
+
+            for i = 1, count do
+                local coin = coinsList[i]
+                local bonus = (coin and coin.Bonus or 0) + intentBonus
+                local isHeads = (bit32.band(mask, bit32.lshift(1, i - 1)) ~= 0)
+
+                if isHeads then
+                    power = power + bonus
+                    prob = prob * headsRate
+                else
+                    prob = prob * (1.0 - headsRate)
+                end
+            end
+
+            dist[power] = (dist[power] or 0) + prob
+        end
+        return dist
+    end
+
+    local function getRoundWinChance(pCount, eCount)
+        local pDist = getDistribution(pBase, pCoins, pCount, pM.IntentPower or 0, pHeads)
+        local eDist = getDistribution(eBase, eCoins, eCount, eM.IntentPower or 0, eHeads)
+
+        local pWin, eWin, draw = 0, 0, 0
+
+        for pVal, pProb in pairs(pDist) do
+            for eVal, eProb in pairs(eDist) do
+                local joint = pProb * eProb
+                if pVal > eVal then
+                    pWin = pWin + joint
+                elseif eVal > pVal then
+                    eWin = eWin + joint
+                else
+                    draw = draw + joint
+                end
+            end
+        end
+
+        local nonDraw = pWin + eWin
+        if nonDraw <= 0.0001 then return 0.50 end
+        return pWin / nonDraw
+    end
+
+    local memo = {}
+    local function solve(pRem, eRem)
+        if pRem <= 0 then return 0.0 end
+        if eRem <= 0 then return 1.0 end
+
+        local key = (pRem * 10) + eRem
+        if memo[key] ~= nil then return memo[key] end
+
+        local pRoundWin = getRoundWinChance(pRem, eRem)
+        local winOutcome  = pRoundWin * solve(pRem, eRem - 1)
+        local loseOutcome = (1.0 - pRoundWin) * solve(pRem - 1, eRem)
+
+        local total = winOutcome + loseOutcome
+        memo[key] = total
+        return total
+    end
+
+    return solve(pCoinCount, eCoinCount)
+end
+
 function Combat.evaluateClash(cardObj, enemy, enemyCard)
     if not enemy or enemy.IsStaggered or (enemy.HandKnown and enemy.HandCount == 0) then
-        return 5, cardObj.MaxPower, nil, "Unopposed"
+        return 5, 1000 + (cardObj.MaxPower or 0), nil, "Unopposed"
     end
 
     if enemyCard then
         local eM = enemy.Mods or Combat.getUnitModifiers(enemy.UnitData)
         local pM = Combat.getUnitModifiers(Refs.PlayerStats)
-        local pBase = cardObj.BasePower + pM.FinalPower + pM.IntentPower
-        local pMax = cardObj.MaxPower + pM.ClashPower + pM.FinalPower
-        local eMax = enemyCard.MaxPower + eM.ClashPower + eM.FinalPower + eM.IntentPower
-        local eBase = enemyCard.BasePower + eM.FinalPower + eM.IntentPower
-        local diff = pMax - eMax
+
+        local pBase = cardObj.BasePower + (pM.ClashPower or 0) + (pM.FinalPower or 0)
+        local eMax = enemyCard.MaxPower + (eM.ClashPower or 0) + (eM.FinalPower or 0) + (eM.IntentPower or 0)
 
         if pBase > eMax then
-            return 5, 1000 + diff, nil, "Certain Victory"
-        elseif diff > Config.CLASH_OVERWHELM_SCORE then
-            return 4, 500 + diff, nil, "Overwhelming Advantage"
-        elseif diff > Config.CLASH_ADVANTAGE_SCORE then
-            return 3, 200 + diff, nil, "Advantaged"
-        elseif diff >= Config.CLASH_RISKY_SCORE then
-            return 2, 50 + diff, nil, "Risky"
+            return 5, 1000 + (pBase - eMax), nil, "Certain Victory"
+        end
+
+        local pPosture = Combat.getPlayerPosture() or 0
+        local ePosture = enemy.Posture or Utils.toNumber(enemy.UnitData and enemy.UnitData.Posture) or 0
+
+        local winChance = Combat.simulateClashProbability(cardObj, enemyCard, pM, eM, pPosture, ePosture)
+        local winPct = math.floor(winChance * 100)
+
+        if winChance >= 0.95 then
+            return 5, 900 + winPct, nil, string.format("Certain Victory (%d%%)", winPct)
+        elseif winChance >= 0.75 then
+            return 4, 500 + winPct, nil, string.format("Overwhelming (%d%%)", winPct)
+        elseif winChance >= 0.55 then
+            return 3, 200 + winPct, nil, string.format("Advantaged (%d%%)", winPct)
+        elseif winChance >= 0.35 then
+            return 2, 50 + winPct,  nil, string.format("Risky (%d%%)", winPct)
         else
-            return 1, diff, nil, "Desperate/Hopeless"
+            return 1, winPct,       nil, string.format("Desperate (%d%%)", winPct)
         end
     end
 
@@ -1340,12 +1448,19 @@ function Combat.evaluateClash(cardObj, enemy, enemyCard)
         local eMax = Utils.toNumber(prediction.EnemyMaxValue) or 0
         local score = Utils.toNumber(prediction.Score) or 0
 
-        if math.max(eBase, eMax) < pBase then return 5, 1000 + score, prediction, "Certain Victory"
-        elseif score > Config.CLASH_OVERWHELM_SCORE then return 4, 500 + score, prediction, "Overwhelming Advantage"
-        elseif score > Config.CLASH_ADVANTAGE_SCORE then return 3, 200 + score, prediction, "Advantaged"
-        elseif score >= Config.CLASH_RISKY_SCORE then return 2, 50 + score, prediction, "Risky"
-        else return 1, score, prediction, "Desperate/Hopeless" end
+        if math.max(eBase, eMax) < pBase then 
+            return 5, 1000 + score, prediction, "Certain Victory"
+        elseif score > Config.CLASH_OVERWHELM_SCORE then 
+            return 4, 500 + score, prediction, "Overwhelming Advantage"
+        elseif score > Config.CLASH_ADVANTAGE_SCORE then 
+            return 3, 200 + score, prediction, "Advantaged"
+        elseif score >= Config.CLASH_RISKY_SCORE then 
+            return 2, 50 + score, prediction, "Risky"
+        else 
+            return 1, score, prediction, "Desperate/Hopeless" 
+        end
     end
+
     return 3, cardObj.MaxPower, nil, "No Prediction"
 end
 
@@ -1413,9 +1528,17 @@ function Combat.selectCardForEnemy(cardsInHand, targetEnemy, isOpposed, targetSl
                 return chosen
             end
         end
-        
         if Config.PLAY_LEFTOVER_EVADES and bestEvade then return bestEvade end
         return bestDefense
+    end
+
+    if isTargetSlotPureDefense or isTargetSlotDefensive then
+        UI.Log("THINK", string.format("Target %s Slot #%d is Pure Guard (<font color='#CE93D8'>%s</font>).",
+            targetEnemy.Name or "Enemy", targetSlotIndex, targetCard and targetCard.Name or "Defense"), "#90A4AE")
+        
+        if canDefend and (bestEvade or bestDefense) then return (bestEvade or bestDefense) end
+        if #offensives > 0 then return offensives[#offensives] end
+        return safe or bestDefense
     end
 
     local scored = {}
@@ -2885,57 +3008,57 @@ do
     LogScroll.ChildRemoved:Connect(function(child) if child:IsA("TextLabel") then task.defer(updateCounterBadge) end end)
 
     function UI.Log(tag, text, colorHex)
-    State.LastLogAt = os.clock()
-    local ok, err = pcall(function()
-        State.LogIndex = State.LogIndex + 1
-        colorHex = colorHex or "#E6E6F0"
-        local tagOut = (tostring(tag):gsub("[<>&]", { ["<"] = "&lt;", [">"] = "&gt;", ["&"] = "&amp;" }))
-        
-        local textOut = tostring(text)
-        textOut = textOut:gsub("<=", "&lt;=")
-        textOut = textOut:gsub(">=", "&gt;=")
-        textOut = textOut:gsub("<<", "&lt;&lt;")
-        textOut = textOut:gsub(">>", "&gt;&gt;")
+        State.LastLogAt = os.clock()
+        local ok, err = pcall(function()
+            State.LogIndex = State.LogIndex + 1
+            colorHex = colorHex or "#E6E6F0"
+            local tagOut = (tostring(tag):gsub("[<>&]", { ["<"] = "&lt;", [">"] = "&gt;", ["&"] = "&amp;" }))
+            
+            local textOut = tostring(text)
+            textOut = textOut:gsub("<=", "&lt;=")
+            textOut = textOut:gsub(">=", "&gt;=")
+            textOut = textOut:gsub("<<", "&lt;&lt;")
+            textOut = textOut:gsub(">>", "&gt;&gt;")
 
-        local timeStamp = Utils.getRunTime()
-        local nearBottom = (LogScroll.AbsoluteCanvasSize.Y - LogScroll.CanvasPosition.Y - LogScroll.AbsoluteWindowSize.Y) <= 48
+            local timeStamp = Utils.getRunTime()
+            local nearBottom = (LogScroll.AbsoluteCanvasSize.Y - LogScroll.CanvasPosition.Y - LogScroll.AbsoluteWindowSize.Y) <= 48
 
-        local entry = Instance.new("TextLabel")
-        entry.Name = string.format("LogEntry_%d", State.LogIndex)
-        entry.Size = UDim2.new(1, 0, 0, 0)
-        entry.AutomaticSize = Enum.AutomaticSize.Y
-        entry.BackgroundTransparency = 1
-        entry.RichText = true
-        entry.Font = Config.UI_LAYOUT.LogFont
-        entry.TextSize = Config.UI_LAYOUT.LogTextSize
-        entry.TextColor3 = Config.THEME.Text
-        entry.TextXAlignment = Enum.TextXAlignment.Left
-        entry.TextWrapped = true
-        entry.LayoutOrder = State.LogIndex
-        entry.ZIndex = 4
-        entry.Text = string.format("<font color='#584E6D'>[%s]</font> <font color='%s'><b>[%s]</b> %s</font>", timeStamp, colorHex, tagOut, textOut)
-        entry.Parent = LogScroll
+            local entry = Instance.new("TextLabel")
+            entry.Name = string.format("LogEntry_%d", State.LogIndex)
+            entry.Size = UDim2.new(1, 0, 0, 0)
+            entry.AutomaticSize = Enum.AutomaticSize.Y
+            entry.BackgroundTransparency = 1
+            entry.RichText = true
+            entry.Font = Config.UI_LAYOUT.LogFont
+            entry.TextSize = Config.UI_LAYOUT.LogTextSize
+            entry.TextColor3 = Config.THEME.Text
+            entry.TextXAlignment = Enum.TextXAlignment.Left
+            entry.TextWrapped = true
+            entry.LayoutOrder = State.LogIndex
+            entry.ZIndex = 4
+            entry.Text = string.format("<font color='#584E6D'>[%s]</font> <font color='%s'><b>[%s]</b> %s</font>", timeStamp, colorHex, tagOut, textOut)
+            entry.Parent = LogScroll
 
-        local labels = {}
-        for _, child in ipairs(LogScroll:GetChildren()) do
-            if child:IsA("TextLabel") then table.insert(labels, child) end
-        end
-        table.sort(labels, function(a, b) return (a.LayoutOrder or 0) < (b.LayoutOrder or 0) end)
-        while #labels > Config.MAX_LOG_LINES do
-            local oldest = table.remove(labels, 1)
-            if oldest then pcall(function() oldest:Destroy() end) end
-        end
+            local labels = {}
+            for _, child in ipairs(LogScroll:GetChildren()) do
+                if child:IsA("TextLabel") then table.insert(labels, child) end
+            end
+            table.sort(labels, function(a, b) return (a.LayoutOrder or 0) < (b.LayoutOrder or 0) end)
+            while #labels > Config.MAX_LOG_LINES do
+                local oldest = table.remove(labels, 1)
+                if oldest then pcall(function() oldest:Destroy() end) end
+            end
 
-        if nearBottom then
-            task.defer(function()
-                if entry.Parent then LogScroll.CanvasPosition = Vector2.new(0, LogScroll.AbsoluteCanvasSize.Y) end
-            end)
-        end
-        entry.TextTransparency = 0.45
-        Services.TweenService:Create(entry, TweenInfo.new(0.18, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), { TextTransparency = 0 }):Play()
-    end)
-    if not ok then warn("[Console] log error:", err) end
-end
+            if nearBottom then
+                task.defer(function()
+                    if entry.Parent then LogScroll.CanvasPosition = Vector2.new(0, LogScroll.AbsoluteCanvasSize.Y) end
+                end)
+            end
+            entry.TextTransparency = 0.45
+            Services.TweenService:Create(entry, TweenInfo.new(0.18, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), { TextTransparency = 0 }):Play()
+        end)
+        if not ok then warn("[Console] log error:", err) end
+    end
 
     ClearBtn.MouseButton1Click:Connect(function()
         for _, child in ipairs(LogScroll:GetChildren()) do
@@ -2985,7 +3108,7 @@ end
             State.IsBotRunning = true
             State.CombatMode = 1
             updateCombatButton()
-            UI.Log("MODE", "SAFE MODE active (Clash evaluation active).", "#2ECC71")
+            UI.Log("MODE", "SAFE MODE active (Stochastic clash analysis active).", "#2ECC71")
         elseif State.CombatMode == 1 then
             State.CombatMode = 2
             updateCombatButton()
