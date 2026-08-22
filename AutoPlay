@@ -3094,7 +3094,7 @@ end
 -- [Worker 1: Hardened Combat Loop]
 task.spawn(function()
     while true do
-        task.wait(0.15)
+        task.wait(0.1)
         if State.IsBotRunning and State.CombatMode > 0 and not Utils.isPlayerDead() then
             local ok, err = pcall(Combat.processTurn)
             if not ok then
